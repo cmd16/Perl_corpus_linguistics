@@ -9,6 +9,6 @@ $dirname = '/Volumes/2TB/Final_project/Fanfic_all';
 
 opendir(DIR, $dirname) or die "Could not open $dirname\n";
 while ($filename = readdir(DIR)) {
-  print "$filename\n";
+  print "$filename\n" if -f $filename;
 }
 closedir(DIR);
