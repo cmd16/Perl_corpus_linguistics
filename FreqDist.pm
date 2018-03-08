@@ -3,6 +3,7 @@ use strict;
 use warnings;
 use diagnostics;
 use lib '/Users/cat/perl5/lib/perl5';
+use Switch;
 package FreqDist;
 
 sub new {
@@ -11,6 +12,7 @@ sub new {
         _types = 0;
         _tokens = 0;
         _hash = {};
+        _keyword_dicts = ();
     };
     bless $self, $class;
     return $self;
@@ -64,9 +66,9 @@ sub add_token_freq($token, $freq) {
 }
 
 sub get_max {
-    keys $self->{_hash}; # reset the internal iterator so a prior each() doesn't affect the loop
     my $max_token;
     my $max_freq = 0;
+    keys $self->{_hash}; # reset the internal iterator so a prior each() doesn't affect the loop
     while(my($token, $freq) = each $self->{_hash}) {
         if ($freq > max_freq) {
             max_token = $token;
@@ -78,11 +80,59 @@ sub get_max {
 
 sub out_to_txt($filename) {
     open(my $out, ">", $filename) or die "Couldn't open $filename, $!";
+    printf $out "#Word types: %d\n", $self->{_types};
+    printf $out "#Word tokens: %d\n", $self->{_tokens};
     foreach my $key (sort { $self->{_hash}{$b} <=> $self->{_hash}{$a} } keys $self->{_hash}) {
-        printf "%s\t%d\n", $key, $self->{_hash}{$key};
+        printf $out "%s\t%d\n", $key, $self->{_hash}{$key};
+    }
+    close $out;
+}
+
+sub open_from_txt($filename) {
+    # clear out the old values
+    foreach my $key ($self->{_hash}) {
+        $self->remove_type($key);
+    }
+    # read in the new values
+    open(my $in, "<", $filename) or die "Couldn't open $filename, $!";
+    while($line = <$in>) {
+        next if $. < 2;  # skip first 2 lines which have types and tokens (https://stackoverflow.com/questions/14393295/best-way-to-skip-a-header-when-reading-in-from-a-text-file-in-perl)
+        my @word_and_freq = split(/\t/, $line);
+        $self->add_token_freq($word_and_freq[0], $word_and_freq[1]);
+    }
+    close $in;
+}
+
+sub update($other) {  # TODO: check declaration
+    %other_hash = other->get_hash(); # reset the internal iterator so a prior each() doesn't affect the loop
+    while(my($token, $freq) = each $other_hash) {
+        $self->add_token_freq($token, $freq);
     }
 }
 
-sub update(FreqDist) {
-
+sub keyword_analysis($other, $p) {  # TODO: check declaration
+    my $crit;
+    switch($p) {
+        case 0.05 { $crit = 3.84; }
+        case 0.01 { $crit = 6.63; }
+        case 0.001 { $crit = 10.83; }
+        case 0.0001 { $crit = 15.13; }
+        else { $crit = 0; }
+    }
+    my %keyword_hash = {};
+    keys $self->{_hash}; # reset the internal iterator so a prior each() doesn't affect the loop
+    while(my($token, $freq1) = each $self->{_hash}) {
+        my $freq2 = $other->get_count($token);
+        my $norm1 = $self->get_normalized_freq($token);
+        my $norm2 = $other->get_normalized_freq($token);
+        my $num = ($freq1 + $freq2) / ($tokens1 + $tokens2);
+        my $E1 = $tokens1 * $num;
+        my $E2 = $tokens2 * $num;
+        my $keyness = $E2 > 0? 2 * ($freq1 * math.log($freq1/$E1) + ($freq2 * math.log($freq2/$E2))) : 2 * ($freq1 * math.log($freq1/$E1));
+        if ($keyness < $crit) {
+            next;
+        }
+        $keyword_dict{$token} = {'freq1'=>freq1, 'norm1'=>$norm1, 'freq2'=>$freq2, 'norm2'=>$norm2};
+    }
+    push($self->{_keyword_dicts}, $keyword_dict);  # TODO: change this later?
 }

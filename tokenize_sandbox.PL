@@ -22,7 +22,7 @@ while(my $line = <$in>) {
         $segmenter_hash{$word} += 1;
     }
 }
-
+close $in;
 keys %word_hash; # reset the internal iterator so a prior each() doesn't affect the loop
 while(my($token, $freq) = each %word_hash) {
     #print $token . ": " . $freq . "\n";

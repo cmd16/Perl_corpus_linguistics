@@ -87,3 +87,4 @@ print $out "hit count" . "\n";
 foreach my $hit_count (%hit_counts) { print $out $hit_count . ": " . $hit_counts{$hit_count} . "\n"; }
 =end comment
 =cut
+close $out;

@@ -30,4 +30,5 @@ while(<$in>) {
     # print $word . " ";
   }
 }
+close $in;
 # print @words[0];
