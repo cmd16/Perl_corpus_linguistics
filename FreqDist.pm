@@ -1,18 +1,18 @@
 #!/Users/cat/perl
 use strict;
 use warnings;
-use diagnostics;
+# use diagnostics;
+# use Switch;
 use lib '/Users/cat/perl5/lib/perl5';
-use Switch;
 package FreqDist;
 
 sub new {
     my $class = shift;
     my $self = {
-        _types = 0;
-        _tokens = 0;
-        _hash = {};
-        _keyword_dicts = ();
+        _types => 0,
+        _tokens => 0,
+        _hash => {},
+        _keyword_dicts => ()
     };
     bless $self, $class;
     return $self;
@@ -78,6 +78,13 @@ sub get_max {
     return ($max_token, $max_freq)
 }
 
+sub clear_hash {
+    $self->{_hash} = {};
+    $self->{_types} = 0;
+    $self->{_tokens} = 0;
+    $self->{_keyword_dicts} = ();
+}
+
 sub out_to_txt($filename) {
     open(my $out, ">", $filename) or die "Couldn't open $filename, $!";
     printf $out "#Word types: %d\n", $self->{_types};
@@ -104,7 +111,7 @@ sub open_from_txt($filename) {
 }
 
 sub update($other) {  # TODO: check declaration
-    %other_hash = other->get_hash(); # reset the internal iterator so a prior each() doesn't affect the loop
+    %other_hash = $other->get_hash(); # reset the internal iterator so a prior each() doesn't affect the loop
     while(my($token, $freq) = each $other_hash) {
         $self->add_token_freq($token, $freq);
     }
@@ -132,7 +139,20 @@ sub keyword_analysis($other, $p) {  # TODO: check declaration
         if ($keyness < $crit) {
             next;
         }
-        $keyword_dict{$token} = {'freq1'=>freq1, 'norm1'=>$norm1, 'freq2'=>$freq2, 'norm2'=>$norm2};
+        %keyword_hash{$token} = {'keyness'=> $keyness, 'freq1'=>freq1, 'norm1'=>$norm1, 'freq2'=>$freq2, 'norm2'=>$norm2};
     }
-    push($self->{_keyword_dicts}, $keyword_dict);  # TODO: change this later?
+    push($self->{_keyword_dicts}, %keyword_hash);  # TODO: change this later?
+}
+
+sub print_keywords(@filenames, @indexes) {
+    foreach my $index (@indexes) {
+        my $filename = @filenames[$index];
+        open(my $out, ">", $filename) or die "Couldn't open $filename, $!";
+        %keyword_hash = $self->{_keyword_dicts}[$index];
+        foreach my $key (sort { $keyword_hash{$a}{'keyness'} <=> $keyword_hash{$b}{'keyness'} } keys %keyword_hash) {
+            printf ($out "%s\t%f\t%f\t%f\t%f\t%f", $key, %keyword_hash{$key}{'keyness'}, %keyword_hash{$key}{'freq1'},
+            %keyword_hash{$key}{'norm1'}, %keyword_hash{$key}{'freq2'}, %keyword_hash{$key}{'norm2'});
+        }
+        close($out);
+    }
 }
