@@ -164,11 +164,13 @@ sub keyword_analysis {  # TODO: check declaration
 }
 
 sub print_keywords {
-    my ($self, @filenames, @indexes) = @_;
+    my ($self, @filenames, @indexes) = @_;  # @indexes is a list of indexes of keyword hashes
     foreach my $index (@indexes) {
         my $filename = @filenames[$index];
         open(my $out, ">", $filename) or die "Couldn't open $filename, $!";
         %keyword_hash = $self->{_keyword_dicts}[$index];
+        printf ($out "# %s\t%s\t%s\t%s\t%s\t%s", "word", "keyness", "freq1",
+        "norm1", "freq2", "norm2");
         foreach my $key (sort { $keyword_hash{$a}{'keyness'} <=> $keyword_hash{$b}{'keyness'} } keys %keyword_hash) {
             printf ($out "%s\t%f\t%f\t%f\t%f\t%f", $key, %keyword_hash{$key}{'keyness'}, %keyword_hash{$key}{'freq1'},
             %keyword_hash{$key}{'norm1'}, %keyword_hash{$key}{'freq2'}, %keyword_hash{$key}{'norm2'});
