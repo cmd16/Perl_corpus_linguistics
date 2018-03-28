@@ -57,7 +57,7 @@ sub add_token {
     my ($self, $token) = @_;
     $self->{_hash}{$token} += 1;
     $self->{_tokens} += 1;
-    $self->{_types} = keys % $self->{_hash};
+    $self->{_types} = keys %{$self->{_hash}};
 }
 
 sub remove_type {
@@ -72,7 +72,7 @@ sub add_token_freq {
     my ($self, $token, $freq) = @_;
     $self->{_hash}{$token} += $freq;
     $self->{_tokens} += $freq;
-    $self->{_types} = keys % $self->{_hash};
+    $self->{_types} = keys %{$self->{_hash}};
 }
 
 sub get_max {
@@ -126,8 +126,8 @@ sub open_from_txt {
 
 sub update {  # TODO: check declaration
     my ($self, $other) = @_;
-    my %other_hash = $other->get_hash(); # reset the internal iterator so a prior each() doesn't affect the loop
-    while(my($token, $freq) = each $other_hash) {
+    my $other_hash = $other->get_hash(); # reset the internal iterator so a prior each() doesn't affect the loop
+    while(my($token, $freq) = each %{$other_hash}) {
         $self->add_token_freq($token, $freq);
     }
 }
@@ -140,9 +140,10 @@ sub keyword_analysis {  # TODO: check declaration
     #     case 0.01 { $crit = 6.63; }
     #     case 0.001 { $crit = 10.83; }
     #     case 0.0001 { $crit = 15.13; }
-    #     else { $crit = 0; }
+    #     case 0 { $crit = 0; }
+    #     else { $crit = 6.63; }
     # }
-    $crit = 0;  # TODO: change later
+    $crit = 6.63;  # TODO: change later
     my %keyword_hash = {};
     keys $self->{_hash}; # reset the internal iterator so a prior each() doesn't affect the loop
     while(my($token, $freq1) = each $self->{_hash}) {
@@ -154,27 +155,28 @@ sub keyword_analysis {  # TODO: check declaration
         my $num = ($freq1 + $freq2) / ($tokens1 + $tokens2);
         my $E1 = $tokens1 * $num;
         my $E2 = $tokens2 * $num;
-        my $keyness = $E2 > 0? 2 * ($freq1 * math.log($freq1/$E1) + ($freq2 * math.log($freq2/$E2))) : 2 * ($freq1 * math.log($freq1/$E1));
+        my $keyness = $E2 > 0? 2 * ($freq1 * log($freq1/$E1) + ($freq2 * log($freq2/$E2))) : 2 * ($freq1 * log($freq1/$E1));
         if ($keyness < $crit) {
             next;
         }
-        %keyword_hash{$token} = {'keyness'=> $keyness, 'freq1'=>$freq1, 'norm1'=>$norm1, 'freq2'=>$freq2, 'norm2'=>$norm2};
+        $keyword_hash{$token} = {'keyness'=> $keyness, 'freq1'=>$freq1, 'norm1'=>$norm1, 'freq2'=>$freq2, 'norm2'=>$norm2};
     }
-    push($self->{_keyword_dicts}, %keyword_hash);  # TODO: change this later?
+    push($self->{_keyword_dicts}, \%keyword_hash);  # TODO: change this later?
 }
 
 sub print_keywords {
     my ($self, @filenames, @indexes) = @_;  # @indexes is a list of indexes of keyword hashes
     foreach my $index (@indexes) {
-        my $filename = @filenames[$index];
+        my $filename = $filenames[$index];
         open(my $out, ">", $filename) or die "Couldn't open $filename, $!";
-        %keyword_hash = $self->{_keyword_dicts}[$index];
-        printf ($out "# %s\t%s\t%s\t%s\t%s\t%s", "word", "keyness", "freq1",
+        my %keyword_hash = %{$self->{_keyword_dicts}[$index]};
+        printf($out "# %s\t%s\t%s\t%s\t%s\t%s", "word", "keyness", "freq1",
         "norm1", "freq2", "norm2");
         foreach my $key (sort { $keyword_hash{$a}{'keyness'} <=> $keyword_hash{$b}{'keyness'} } keys %keyword_hash) {
-            printf ($out "%s\t%f\t%f\t%f\t%f\t%f", $key, %keyword_hash{$key}{'keyness'}, %keyword_hash{$key}{'freq1'},
-            %keyword_hash{$key}{'norm1'}, %keyword_hash{$key}{'freq2'}, %keyword_hash{$key}{'norm2'});
+            printf($out "%s\t%f\t%d\t%f\t%d\t%f", $key, $keyword_hash{$key}{'keyness'}, $keyword_hash{$key}{'freq1'},
+            $keyword_hash{$key}{'norm1'}, $keyword_hash{$key}{'freq2'}, $keyword_hash{$key}{'norm2'});
         }
         close($out);
     }
 }
+1;
