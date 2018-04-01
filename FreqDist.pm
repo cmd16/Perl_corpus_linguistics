@@ -102,6 +102,7 @@ sub out_to_txt {
     open(my $out, ">", $filename) or die "Couldn't open $filename, $!";
     printf $out "#Word types: %d\n", $self->{_types};
     printf $out "#Word tokens: %d\n", $self->{_tokens};
+    printf $out "#Search results: 0";
     foreach my $key (sort { $self->{_hash}{$b} <=> $self->{_hash}{$a} } keys $self->{_hash}) {
         printf $out "%s\t%d\n", $key, $self->{_hash}{$key};
     }
@@ -145,6 +146,8 @@ sub keyword_analysis {  # TODO: check declaration
     # }
     $crit = 6.63;  # TODO: change later
     my %keyword_hash = {};
+    my $types1 = $self->get_types();
+    my $types2 = $other->get_types();
     keys $self->{_hash}; # reset the internal iterator so a prior each() doesn't affect the loop
     while(my($token, $freq1) = each $self->{_hash}) {
         my $freq2 = $other->get_count($token);
@@ -160,8 +163,9 @@ sub keyword_analysis {  # TODO: check declaration
             next;
         }
         $keyword_hash{$token} = {'keyness'=> $keyness, 'freq1'=>$freq1, 'norm1'=>$norm1, 'freq2'=>$freq2, 'norm2'=>$norm2};
+        # ({'keyness'=> $keyness, 'freq1'=>$freq1, 'norm1'=>$norm1, 'freq2'=>$freq2, 'norm2'=>$norm2}, ($types1, $tokens1), ($types2, $tokens));
     }
-    push($self->{_keyword_dicts}, \%keyword_hash);  # TODO: change this later?
+    push($self->{_keyword_dicts}, \%keyword_hash);  # TODO: deal with types and tokens
 }
 
 sub print_keywords {
@@ -170,6 +174,8 @@ sub print_keywords {
         my $filename = $filenames[$index];
         open(my $out, ">", $filename) or die "Couldn't open $filename, $!";
         my %keyword_hash = %{$self->{_keyword_dicts}[$index]};
+        printf($out "# Corpus 1:\t%s\t%d\t%d\n", $filename, 0, 0);  # TODO: deal with types and tokens
+        printf($out "# Corpus 2:\t%s\t%d\t%d\n", $filename, 0, 0);  # TODO: deal with types and tokens
         printf($out "# %s\t%s\t%s\t%s\t%s\t%s", "word", "keyness", "freq1",
         "norm1", "freq2", "norm2");
         foreach my $key (sort { $keyword_hash{$a}{'keyness'} <=> $keyword_hash{$b}{'keyness'} } keys %keyword_hash) {
