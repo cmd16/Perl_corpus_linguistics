@@ -8,11 +8,13 @@ package FreqDist;
 
 sub new {
     my $class = shift;
+    my %hash;
+    my @keywords;
     my $self = {
         _types => 0,
         _tokens => 0,
-        _hash => {},
-        _keyword_dicts => ()
+        _hash => \%hash,
+        _keyword_dicts => \@keywords,
     };
     bless $self, $class;
     return $self;
@@ -30,7 +32,7 @@ sub get_tokens {
 
 sub get_hash {
     my $self = @_;
-    return $self->{_hash};
+    return %{$self->{_hash}};
 }
 
 sub get_count {

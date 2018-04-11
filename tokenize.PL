@@ -4,22 +4,52 @@ use warnings;
 use lib '/Users/cat/perl5/lib/perl5';
 use Lingua::EN::Segmenter::TextTiling qw(segments);
 use FreqDist;
-use Tokenize;
 
-my $proj_dir = '/Volumes/2TB/Final_project';
-my $splitter = new Lingua::EN::Splitter;
-
-# @names = readdir($proj_dir . "/Fanfic lists") or die "Unable to read current dir:$!\n";
-my $ending = /.txt/;
-foreach my $name (readdir($proj_dir . "/Fanfic lists")) {
-    if ($name =~ $ending) {
-        my $start = time;
-        my $freq_dist_obj = tokenize_from_idlist($proj_dir . "/Fanfic lists/" . $name, $splitter);
-        my $dir_time = time - $start;
-        print "Run time to get {$name} wordlist: {$dir_time}";
-        $start = time;
-        $freq_dist_obj->out_to_txt("/Volumes/2TB/Final_project/wordlists/{$name}_perl.txt");
-        my $word_out_time = time - $start;
-        print "Run time to write out {$name} wordlist: {$word_out_time}";
+sub tokenize_dir {
+    my ($dirname, $splitter) = @_;
+    my $freq_dist_obj = new FreqDist;  # TODO update definition
+    opendir(DIR, $dirname) or die "Could not open $dirname, $!\n";
+    while (my $filename = readdir(DIR)) {
+        if (-f $filename) {
+            print "processing {$filename}";
+            my $current_freq_dist = tokenize_file($dirname . "/" . $filename, $splitter);
+            $freq_dist_obj->update($current_freq_dist);
+        }
     }
+    closedir(DIR);
+    return $freq_dist_obj;
 }
+
+sub tokenize_file {
+    my ($filename, $splitter) = @_;
+    my $current_freq_dist = new FreqDist();
+    open(my $in, "<", $filename) or die "Could not open tokenize $filename, $!\n";
+    while(my $line = <$in>) {
+        my $tokens = $splitter->words($line);
+        foreach my $token (@$tokens) {
+            $current_freq_dist->add_token($token) if $token =~ /^[a-zA-Z']+$/;  # add the token unless it contains a non-alpha character
+        }
+    }
+    close $in;
+    return $current_freq_dist;
+}
+
+sub tokenize_from_idlist {
+    my ($list_filename, $path, $splitter) = @_;
+    # print $list_filename;
+    # if(-f $list_filename) { print "Exists!\n"; }
+    open(my $in, "<$list_filename") or die "Could not open list_filename, $!\n";
+    my $freq_dist_obj = new FreqDist;  # TODO update definition
+    while(my $line = <$in>) {
+        chomp($line);
+        # $id = $id.chomp();
+        my $filename = $path . "/" . $line . ".txt";
+        print($filename, "\n");
+        my $current_freq_dist = tokenize_file($filename, $splitter);
+        $freq_dist_obj->update($current_freq_dist);
+    }
+    close $in;
+    return $freq_dist_obj;
+}
+
+return 1;
