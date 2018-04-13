@@ -10,8 +10,8 @@ sub tokenize_dir {
     my $freq_dist_obj = new FreqDist;  # TODO update definition
     opendir(DIR, $dirname) or die "Could not open $dirname, $!\n";
     while (my $filename = readdir(DIR)) {
-        if (-f $filename) {
-            print "processing {$filename}";
+        if (-f $filename) {  # is this enough to avoid .DS_Store ?
+            # print "processing {$filename}";
             my $current_freq_dist = tokenize_file($dirname . "/" . $filename, $splitter);
             $freq_dist_obj->update($current_freq_dist);
         }
@@ -23,7 +23,9 @@ sub tokenize_dir {
 sub tokenize_file {
     my ($filename, $splitter) = @_;
     my $current_freq_dist = new FreqDist();
-    open(my $in, "<", $filename) or die "Could not open tokenize $filename, $!\n";
+    open(my $in, "<", $filename) or {
+        print "Could not open tokenize $filename, $!\n"; next;
+    }
     while(my $line = <$in>) {
         my $tokens = $splitter->words($line);
         foreach my $token (@$tokens) {
@@ -36,15 +38,12 @@ sub tokenize_file {
 
 sub tokenize_from_idlist {
     my ($list_filename, $path, $splitter) = @_;
-    # print $list_filename;
-    # if(-f $list_filename) { print "Exists!\n"; }
     open(my $in, "<$list_filename") or die "Could not open list_filename, $!\n";
     my $freq_dist_obj = new FreqDist;  # TODO update definition
     while(my $line = <$in>) {
         chomp($line);
-        # $id = $id.chomp();
         my $filename = $path . "/" . $line . ".txt";
-        print($filename, "\n");
+        # print($filename, "\n");
         my $current_freq_dist = tokenize_file($filename, $splitter);
         $freq_dist_obj->update($current_freq_dist);
     }

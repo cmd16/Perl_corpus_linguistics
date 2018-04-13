@@ -12,7 +12,7 @@ my $tag_dir = $proj_dir . "/Tag perl";
 my $fanfic_dir = sprintf("%s/Fanfic_all",$proj_dir);
 my $ending = '.txt';
 my $tagger = new Lingua::EN::Tagger;
-my $restart_id = "729897";
+my $restart_id = "974985";
 my $found = 0;
 
 opendir(DH, $fanfic_dir) or die "opendir() failed: $!";

@@ -21,18 +21,18 @@ sub new {
 }
 
 sub get_types {
-    my $self = @_;
+    my ($self) = @_;
     return $self->{_types};
 }
 
 sub get_tokens {
-    my $self = @_;
+    my ($self) = @_;
     return $self->{_tokens};
 }
 
 sub get_hash {
-    my $self = @_;
-    return %{$self->{_hash}};
+    my ($self) = @_;
+    return $self->{_hash};
 }
 
 sub get_count {
@@ -59,7 +59,7 @@ sub add_token {
     my ($self, $token) = @_;
     $self->{_hash}{$token} += 1;
     $self->{_tokens} += 1;
-    $self->{_types} = keys %{$self->{_hash}};
+    $self->{_types} = scalar keys %{$self->{_hash}};
 }
 
 sub remove_type {
@@ -78,10 +78,10 @@ sub add_token_freq {
 }
 
 sub get_max {
-    my $self = @_;
+    my ($self) = @_;
     my $max_token;
     my $max_freq = 0;
-    keys $self->{_hash}; # reset the internal iterator so a prior each() doesn't affect the loop
+    scalar keys $self->{_hash}; # reset the internal iterator so a prior each() doesn't affect the loop
     while(my($token, $freq) = each $self->{_hash}) {
         if ($freq > $max_freq) {
             $max_token = $token;
@@ -92,7 +92,7 @@ sub get_max {
 }
 
 sub clear_hash {
-    my $self = @_;
+    my ($self) = @_;
     $self->{_hash} = {};
     $self->{_types} = 0;
     $self->{_tokens} = 0;
@@ -104,7 +104,7 @@ sub out_to_txt {
     open(my $out, ">", $filename) or die "Couldn't open $filename, $!";
     printf $out "#Word types: %d\n", $self->{_types};
     printf $out "#Word tokens: %d\n", $self->{_tokens};
-    printf $out "#Search results: 0";
+    printf $out "#Search results: 0\n";
     foreach my $key (sort { $self->{_hash}{$b} <=> $self->{_hash}{$a} } keys $self->{_hash}) {
         printf $out "%s\t%d\n", $key, $self->{_hash}{$key};
     }
@@ -150,7 +150,7 @@ sub keyword_analysis {  # TODO: check declaration
     my %keyword_hash = {};
     my $types1 = $self->get_types();
     my $types2 = $other->get_types();
-    keys $self->{_hash}; # reset the internal iterator so a prior each() doesn't affect the loop
+    scalar keys $self->{_hash}; # reset the internal iterator so a prior each() doesn't affect the loop
     while(my($token, $freq1) = each $self->{_hash}) {
         my $freq2 = $other->get_count($token);
         my $norm1 = $self->get_normalized_freq($token);
