@@ -8,6 +8,7 @@ use FreqDist;
 require "./Tokenize.PL";
 
 my $splitter = new Lingua::EN::Splitter;
+$splitter->set_non_word_regexp("[^a-zA-Z]+");
 my $proj_dir = "/Volumes/2TB/Final_project";
 
 my $start = time;

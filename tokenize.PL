@@ -23,13 +23,15 @@ sub tokenize_dir {
 sub tokenize_file {
     my ($filename, $splitter) = @_;
     my $current_freq_dist = new FreqDist();
-    open(my $in, "<", $filename) or {
-        print "Could not open tokenize $filename, $!\n"; next;
-    }
+    open(my $in, "<", $filename) or print "Could not open tokenize $filename, $!\n";
     while(my $line = <$in>) {
         my $tokens = $splitter->words($line);
         foreach my $token (@$tokens) {
-            $current_freq_dist->add_token($token) if $token =~ /^[a-zA-Z']+$/;  # add the token unless it contains a non-alpha character
+            if ($token eq "") {
+                print "empty token in line: $line";
+            }
+            $current_freq_dist->add_token($token);
+            # condition not needed; changed token def if $token =~ /^[a-zA-Z']+$/;  # add the token unless it contains a non-alpha character
         }
     }
     close $in;
@@ -42,7 +44,7 @@ sub tokenize_from_idlist {
     my $freq_dist_obj = new FreqDist;  # TODO update definition
     while(my $line = <$in>) {
         chomp($line);
-        my $filename = $path . "/" . $line . ".txt";
+        my $filename = "$path/$line.txt";
         # print($filename, "\n");
         my $current_freq_dist = tokenize_file($filename, $splitter);
         $freq_dist_obj->update($current_freq_dist);
