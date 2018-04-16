@@ -105,8 +105,10 @@ sub out_to_txt {
     printf $out "#Word types: %d\n", $self->{_types};
     printf $out "#Word tokens: %d\n", $self->{_tokens};
     printf $out "#Search results: 0\n";
+    my $rank = 1;
     foreach my $key (sort { $self->{_hash}{$b} <=> $self->{_hash}{$a} } keys $self->{_hash}) {
-        printf $out "%s\t%d\n", $key, $self->{_hash}{$key};
+        printf $out "%d\t%d\t%s\n", $rank, $self->{_hash}{$key}, $key;
+        $rank += 1;
     }
     close $out;
 }
