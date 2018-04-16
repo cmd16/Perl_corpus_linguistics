@@ -2,6 +2,7 @@
 use FreqDist;
 use Path::Tiny qw( path );
 use File::Basename;
+use HTML::Parser;
 
 $tags_names = {"cc" => "coordinating conjuction",
 "cd" => "cardinal number",
@@ -49,6 +50,7 @@ $tags_names = {"cc" => "coordinating conjuction",
 "pps" => "punctuation, colon, semicolon, elipsis",
 "lrb" => "punctuation, left bracket",
 "rrb" => "punctuation, right bracket"};
+
 $simple_tags = {
     "adjective" => ("jj", "jjr", "jjs"),
     "noun" => ("nn", "nns", "nnp", "nnps"),
@@ -63,6 +65,36 @@ $simple_tags = {
     "bracket" => ("lrb", "rrb"),
     "punctuation" => ("pp", "ppc", "ppd", "ppl", "ppr", "pps", "lrb", "rrb")
 };
+
+$pronoun_tag_patterns = {
+    ("she", "_verb"),
+    ("he", "_verb"),
+    ("woman", "_verb"),
+    ("man", "_verb"),
+    ("women", "_verb"),
+    ("men", "_verb"),
+    ("boy", "_verb"),
+    ("girl", "_verb"),
+    ("boys", "_verb"),
+    ("girls", "_verb"),
+    ("_verb", "her"),
+    ("_verb", "him"),  # on to possessive after this line
+    ("her", "_noun"),
+    ("his", "_noun"),
+    ("woman", "_noun"),
+    ("man", "_noun"),
+    ("women", "_noun"),
+    ("men", "_noun"),
+    ("girl", "_noun"),
+    ("boy", "_noun")
+}
+
+$absolute_phrase_tag_regexes = {
+    "((\w+_(PP\$DT)(\s\w+_JJ)?(\s\w+_(NN|NNS))\s?){2})",  # 1. TODO: fix
+    "((\w+)_(PP\$|DT)\s((\w+)_(NN|NNS))\s((\w+)_(RB))?\s((\w+)_(JJ))\s((,)_,)?)",  # 1.5
+    "(\w+_(PP\$|DT)(\s\w+_JJ)?(\s\w+_(NN|NNS))(\s\w+_(JJ|RB))?(\s\w+_IN))",  # 2
+    "(\w+_(PP\$|DT))?(\s\w+_(JJ|RB))?(\s\w+_(NN|NNS))(\s\w+_(JJ|RB))?(\s\w+_(VVG|VVN|VBN))"
+}
 
 sub parse_tags_from_text {
     my ($text, $tag_dict, $case_sensitive) = @_;
