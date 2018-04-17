@@ -32,12 +32,10 @@ my @idfiles = readdir(DH);
 closedir(DH);
 foreach my $idfilename (@idfiles) {
     chomp($idfilename);
-    if ($idfilename eq "." or $idfilename eq ".." or $idfilename eq ".DS_Store") {
-        print "skipping $idfilename\n";
-        next;
+    if ($idfilename =~ /.txt/) {
+        count_bigrams_from_idlist("$fanfic_list_dir/$idfilename", $fanfic_dir,
+        $bigram_dir);
     }
-    count_bigrams_from_idlist("$fanfic_list_dir/$idfilename", $fanfic_dir,
-    $bigram_dir);
 }
 
 # system($^X, "/Users/cat/perl5/bin/huge-count.pl", "--token=valid_tokens.txt",
