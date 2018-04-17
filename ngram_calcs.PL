@@ -1,9 +1,9 @@
 #!/Users/cat/perl
 use strict;
 use warnings;
-# use Lingua::EN::Ngram;
 use IPC::System::Simple qw(system capture);
 use File::Basename;
+use List::MoreUtils qw(natatime);
 
 my $proj_dir = "/Volumes/2TB/Final_project";
 my $fanfic_dir = "$proj_dir/Fanfic_all";
@@ -21,10 +21,23 @@ sub count_bigrams_from_idlist {
         my $filename = "$fanfic_dir/$line.txt";
         push(@filenames, $filename);
     }
+    if (@filenames > 5000) {  # guessing at what the argument size limit is
+        my $counter = 0;
+        my $iter = natatime 5000, @filenames;
+        while( my @tmp = $iter->() ){
+            system($^X, "/Users/cat/perl5/bin/huge-count.pl", "--token=valid_tokens.txt",
+            "--tokenlist", $dest_dir, @tmp);
+            system($^X, "/Users/cat/perl5/bin/huge-sort.pl", "$dest_dir/complete-huge-count.output");
+            rename("$dest_dir/complete-huge-count.sorted",
+                "$dest_dir/${short_filename}_count$counter.sorted") or die "Rename failed, $!\n";
+            $counter += 1;
+        }
+        system($^X, "/Users/cat/perl5/bin/huge-merge.pl", $dest_dir);
+    }
     close $in;
     system($^X, "/Users/cat/perl5/bin/huge-count.pl", "--token=valid_tokens.txt",
     "--tokenlist", $dest_dir, @filenames);
-    rename("$dest_dir/huge-count.pl", "$dest_dir/${short_filename}_count.txt");
+    rename("$dest_dir/complete-huge-count.output", "$dest_dir/${short_filename}_count.txt");
 }
 
 opendir(DH, $fanfic_list_dir) or die "opendir($fanfic_list_dir) failed: $!";
@@ -38,13 +51,5 @@ foreach my $idfilename (@idfiles) {
     }
 }
 
-# system($^X, "/Users/cat/perl5/bin/huge-count.pl", "--token=valid_tokens.txt",
-# "--tokenlist", "/Users/cat/CS214/bigrams", "/Users/cat/CS214/source_files");
-
-# Run a command, wait until it finishes, and make sure it works.
-# Output from this program goes directly to STDOUT, and it can take input
-# from your STDIN if required.
-# system($^X, "/Users/cat/perl5/bin/count.pl", "--token=valid_tokens.txt", "lab01_java_bigrams.cnt", $filename);
-#
 # # statistic.pl -score 6.00 -frequency 5 ll.pm holmes1.ll h.cnt
 # system($^X, "/Users/cat/perl5/bin/statistic.pl", "--score=6.63", "ll.pm", "lab01_java_bigrams.ll", "/Users/cat/Perl_scripts/214_Final_project/lab01_java_bigrams.cnt");
