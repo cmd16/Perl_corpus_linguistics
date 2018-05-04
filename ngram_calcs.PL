@@ -21,14 +21,14 @@ sub count_bigrams_from_idlist {
         my $filename = "$fanfic_dir/$line.txt";
         push(@filenames, $filename);
     }
-    if (@filenames > 5000) {  # guessing at what the argument size limit is
+    if (@filenames > 4000) {  # guessing at what the argument size limit is
         my $counter = 0;
-        my $iter = natatime 5000, @filenames;
+        my $iter = natatime 4000, @filenames;
         while( my @tmp = $iter->() ){
             system($^X, "/Users/cat/perl5/bin/huge-count.pl", "--token=valid_tokens.txt",
             "--tokenlist", $dest_dir, @tmp);
             system($^X, "/Users/cat/perl5/bin/huge-sort.pl", "$dest_dir/complete-huge-count.output");
-            rename("$dest_dir/complete-huge-count.sorted",
+            rename("$dest_dir/complete-huge-count.output-sorted",
                 "$dest_dir/${short_filename}_count$counter.sorted") or die "Rename failed, $!\n";
             $counter += 1;
         }
@@ -37,7 +37,8 @@ sub count_bigrams_from_idlist {
     close $in;
     system($^X, "/Users/cat/perl5/bin/huge-count.pl", "--token=valid_tokens.txt",
     "--tokenlist", $dest_dir, @filenames);
-    rename("$dest_dir/complete-huge-count.output", "$dest_dir/${short_filename}_count.txt");
+    rename("$dest_dir/complete-huge-count.output", "$dest_dir/results/${short_filename}_count.txt")
+        or die "Final rename failed, $!\n";
 }
 
 opendir(DH, $fanfic_list_dir) or die "opendir($fanfic_list_dir) failed: $!";
