@@ -29,7 +29,7 @@ foreach my $id_name (@files) {
     }
     $start = time;
     $freq_dist_obj = tokenize_from_idlist("$fanfic_list_dir/$id_name",
-        $fanfic_dir, $splitter);
+        $fanfic_dir, $splitter, 0);
     $dir_time = time - $start;
     printf "%s\t%.6f\n", $id_name, $dir_time;
     my $modified_str = $id_name =~ s/\s/_/gr;
