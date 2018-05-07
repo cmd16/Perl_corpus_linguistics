@@ -3,6 +3,7 @@ use warnings;
 use Lingua::EN::Segmenter::TextTiling qw(segments);
 use FreqDist;
 use Time::HiRes qw(time);
+use Path::Tiny qw(path);
 require "./Tokenize.PL";
 
 my $show_full_pathname = 1;
@@ -359,13 +360,6 @@ sub run_wordlist {
         my $reg_or_txt = <STDIN>;
         chomp($reg_or_txt);
 
-        if ($reg_or_txt eq "0") {
-            print("0\n");
-        }
-        elsif ($reg_or_txt eq "1") {
-            print("1\n");
-        }
-
         print("Query: ");
         my $query = <STDIN>;
         chomp($query);
@@ -379,13 +373,71 @@ sub run_wordlist {
         chomp($exact_or_partial);
 
         foreach my $token ($wordlist_freqdist->get_keys()) {
-            if ($exact_or_partial eq "1") {  # not exact
-                if ($token =~ /$query/) {
-                    printf("%d\t%s\n", $wordlist_freqdist->get_count($token), $token);
+            if (search_token($token, $query, $exact_or_partial)) {
+                printf("%d\t%s\n", $wordlist_freqdist->get_count($token), $token);
+            }
+        }
+    }
+}
+
+sub search_token {
+    my ($token, $query, $exact_or_partial) = @_;
+    if ($exact_or_partial eq "1") {  # not exact
+        if ($token =~ /$query/) {
+            return 1;
+        }
+    }
+    elsif ($token =~ /^$query$/) {  # anchor at beginning and end
+        return 1;
+    }
+    return 0;
+}
+
+sub run_concordance {
+    print("Regex (0) or text (1): ");
+    my $reg_or_txt = <STDIN>;
+    chomp($reg_or_txt);
+
+    print("Enter the tokens separated by spaces: ");
+    my $query = <STDIN>;
+    chomp($query);
+
+    if ($reg_or_txt eq "1") {
+        $query = quotemeta($query);  # escape special characters
+    }
+
+    my @queries = split(" ", $query);
+
+    if ($tool_wordlist_regex_checkval eq "1") {
+        print("using local regex $tool_wordlist_regex\n");
+        $splitter->set_non_word_regexp("$tool_wordlist_regex");
+    }
+    elsif ($tool_wordlist_regex_checkval eq "0") {
+        print("using global regex $global_regex\n");
+        $splitter->set_non_word_regexp("$global_regex");
+    }
+
+    print("Exact match (0) or partial match (1): ");
+    my $exact_or_partial = <STDIN>;
+    chomp($exact_or_partial);
+
+    foreach my $filename (@filenames) {
+        my $text = path("$filename")->slurp_utf8;
+        my @words = $splitter->words($text);
+        for my $i (0..$#words) {
+            my $match = 1;
+            for my $x (0..$#queries) {
+                my $idx = $i+$x;
+                my $token = $words[$idx];
+                if (! search_token($token, $query, $exact_or_partial)) {
+                    print("$token not a match");
+                    $match = 0;
+                    last;
                 }
             }
-            elsif ($token =~ /^$query$/) {  # anchor at beginning and end
-                printf("%d\t%s\n", $wordlist_freqdist->get_count($token), $token);
+            if ($match) {
+                print(@words[$i-$tool_concordance_win_length..$i+$tool_concordance_win_length]);
+                print("\t$filename\n");
             }
         }
     }
@@ -519,8 +571,31 @@ sub main {
                 }
             }
         }
+        elsif ($choice eq "4") {
+            if ($#filenames < 1) {
+                print("No files to remove.\n");
+                next;
+            }
+            for my $i (0 .. $#filenames) {
+                my $filename = $filenames[$i];
+                print("$i $filename\n");
+            }
+            print("Index of file to delete: ");
+            my $del_idx = <STDIN>;
+            chomp($del_idx);
+            $del_idx = int($del_idx);
+            splice(@filenames, $del_idx, 1);
+        }
+        elsif ($choice eq "5") {
+            for my $filename (@filenames) {
+                print("$filename\n");
+            }
+        }
         elsif ($choice eq "6") {
             run_wordlist();
+        }
+        elsif ($choice eq "7") {
+            run_concordance();
         }
     }
 }
