@@ -30,6 +30,15 @@ sub get_tokens {
     return $self->{_tokens};
 }
 
+sub get_keys {
+    my ($self) = @_;
+    my @keys = ();
+    foreach my $key (sort { $self->{_hash}{$b} <=> $self->{_hash}{$a} } keys $self->{_hash}) {
+        push(@keys, $key);
+    }
+    return @keys;
+}
+
 sub get_hash {
     my ($self) = @_;
     return $self->{_hash};
