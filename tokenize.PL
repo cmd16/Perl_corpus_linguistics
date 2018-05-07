@@ -8,7 +8,7 @@ use FreqDist;
 sub tokenize_dir {
     my ($dirname, $splitter) = @_;
     my $freq_dist_obj = new FreqDist;  # TODO update definition
-    opendir(DIR, $dirname) or die "Could not open $dirname, $!\n";
+    opendir(DIR, $dirname) or warn "Could not open $dirname, $!\n";
     while (my $filename = readdir(DIR)) {
         if (-f $filename) {  # is this enough to avoid .DS_Store ?
             # print "processing {$filename}";
@@ -23,7 +23,7 @@ sub tokenize_dir {
 sub tokenize_file {
     my ($filename, $splitter, $case_sensitive) = @_;
     my $current_freq_dist = new FreqDist();
-    open(my $in, "<", $filename) or print "Could not open tokenize $filename, $!\n";
+    open(my $in, "<", $filename) or warn "Could not open tokenize $filename, $!\n";
     while(my $line = <$in>) {
         my $tokens = $splitter->words($line);
         foreach my $token (@$tokens) {
@@ -43,7 +43,7 @@ sub tokenize_file {
 
 sub tokenize_from_idlist {
     my ($list_filename, $path, $splitter, $case_sensitive) = @_;
-    open(my $in, "<$list_filename") or die "Could not open list_filename, $!\n";
+    open(my $in, "<$list_filename") or warn "Could not open list_filename, $!\n";
     my $freq_dist_obj = new FreqDist;  # TODO update definition
     while(my $line = <$in>) {
         chomp($line);
