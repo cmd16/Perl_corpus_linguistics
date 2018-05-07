@@ -25,14 +25,11 @@ my $tool_concordance_case = 0;  # same as global settings
 my $tool_concordance_win_length = 7;
 
 my $tool_ngram_case = 0;
-my $tool_ngram_regex_checkval = 1;
 my $tool_ngram_regex_filename = "";
 my $tool_ngram_nontoken_checkval = 0;
 my $tool_ngram_nontoken_filename = "";
-my $tool_ngram_nontokens = ();
 my $tool_ngram_stop_checkval = 0;
 my $tool_ngram_stop_filename = "";
-my $tool_ngram_stopwords = ();
 my $tool_ngram_freq_checkval = 0;
 my $tool_ngram_freq = 1;
 my $tool_ngram_ufreq_checkval = 0;
@@ -101,7 +98,7 @@ sub set_tool_settings_wordlist {
     # TODO: why isn't this working?
     if ($input ne  "") {$tool_wordlist_regex_checkval = int($input)};
 
-    if ($tool_wordlist_regex_checkval eq "1") {
+    if ($tool_wordlist_regex_checkval == 1) {
         print("Set wordlist regex for nontoken (simplest way is [^nontoken]+). Currently $tool_wordlist_regex: ");
         $input = <STDIN>;
         chomp($input);
@@ -148,29 +145,25 @@ sub set_tool_settings_ngram {
     chomp($input);
     if ($input ne  "") {$tool_ngram_case = int($input)};
 
-    print("Use global regex for token definition (currently $global_regex) (1/0). Currently $tool_ngram_regex_checkval: ");
+    print("Filename containing token regexes for ngrams. Currently $tool_ngram_regex_filename: ");
     $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_ngram_regex_checkval = int($input)};
-
-    if (! $tool_ngram_regex_checkval) {
-        print("Filename containing token regexes for ngrams. Currently $tool_ngram_regex_filename: ");
-        $input = <STDIN>;
-        chomp($input);
-        if (! $input eq  "") {$tool_ngram_regex_filename = $input};
-    }
+    if (! $input eq  "") {$tool_ngram_regex_filename = $input};
 
     print("Use file for nontokens (1/0). Currently $tool_ngram_nontoken_checkval: ");
     $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_ngram_nontoken_checkval = int($input)};
+    if ($input ne  "") {$tool_ngram_nontoken_checkval = int($input);}
 
     #TODO: not working
     if (! $tool_ngram_nontoken_checkval) {
         print("Filename containing nontoken regexes for ngrams (currently $tool_ngram_nontoken_filename): ");
         $input = <STDIN>;
         chomp($input);
-        if ($input ne  "") {$tool_ngram_nontoken_filename = $input};
+        if (-f $input) {
+            $tool_ngram_nontoken_filename = $input;
+        }
+        else {warn("$input could not be found.");}
     }
 
     print("Use file for stopwords (1/0). Currently $tool_ngram_stop_checkval: ");
@@ -423,7 +416,7 @@ sub run_concordance {
 
     foreach my $filename (@filenames) {
         my $text = path("$filename")->slurp_utf8;
-        my @words = $splitter->words($text);
+        my @words = $splitter->words($text);  # TODO: fix problem where @words isn't an array? What is this
         for my $i (0..$#words) {
             my $match = 1;
             for my $x (0..$#queries) {
@@ -441,6 +434,24 @@ sub run_concordance {
             }
         }
     }
+}
+
+sub run_ngram {
+    my $tool_ngram_case = 0;
+    my $tool_ngram_regex_filename = "";
+    my $tool_ngram_nontoken_checkval = 0;
+    my $tool_ngram_nontoken_filename = "";
+    my $tool_ngram_stop_checkval = 0;
+    my $tool_ngram_stop_filename = "";
+    my $tool_ngram_freq_checkval = 0;
+    my $tool_ngram_freq = 1;
+    my $tool_ngram_ufreq_checkval = 0;
+    my $tool_ngram_ufreq = 1;
+    my $tool_ngram_newline_checkval = 1;
+    my $tool_ngram_precision = 6;
+    my $tool_ngram_measure_2 = "MI::ll.pm";
+    my $tool_ngram_measure_3 = "MI::ll.pm";
+    my $tool_ngram_measure_4 = "MI::ll.pm";
 }
 
 sub main {
@@ -596,6 +607,9 @@ sub main {
         }
         elsif ($choice eq "7") {
             run_concordance();
+        }
+        elsif ($choice eq "8") {
+            run_ngram();
         }
     }
 }
