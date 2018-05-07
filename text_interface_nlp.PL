@@ -10,7 +10,7 @@ my $global_default_extension = ".txt";
 my $global_save_intermediate = 0;
 my $global_save_intermediate_dir = "";
 
-my $global_regex = "[a-zA-Z]+";
+my $global_regex = "[^a-zA-Z]+";
 my $global_case_sensitive = 0;
 my $global_stop_words = ();
 
@@ -48,7 +48,7 @@ my $tool_keyword_reference_checkval = 0;
 my $wordlist_types = 0;
 my $wordlist_tokens = 0;
 my $wordlist_search_num = 0;
-my $wordlist_freqdist = undef;
+my $wordlist_freqdist = new FreqDist;
 
 my @filenames = ();
 
@@ -66,7 +66,7 @@ sub set_global_settings {
     chomp($input);
     if ($input ne  "") {$global_default_extension = $input};
 
-    print("Global regex to define token (must be in form []+). Currently $global_regex: ");
+    print("Global regex to define nontoken (simplest way is [^nontoken]+). Currently $global_regex: ");
     $input = <STDIN>;
     chomp($input);
     if ($input ne  "") {$global_regex = $input};
@@ -94,14 +94,14 @@ sub set_tool_settings_wordlist {
     chomp($input);
     if ($input ne  "") {$tool_wordlist_case = int($input)};
 
-    print("Use global regex for token definition (currently $global_regex) (1/0). Currently $tool_wordlist_regex_checkval: ");
+    print("Use global regex for nontoken definition (currently $global_regex) (1/0). Currently $tool_wordlist_regex_checkval: ");
     $input = <STDIN>;
     chomp($input);
     # TODO: why isn't this working?
     if ($input ne  "") {$tool_wordlist_regex_checkval = int($input)};
 
     if ($tool_wordlist_regex_checkval eq "1") {
-        print("Set wordlist regex for token definition (must be in form []+). Currently $tool_wordlist_regex: ");
+        print("Set wordlist regex for nontoken (simplest way is [^nontoken]+). Currently $tool_wordlist_regex: ");
         $input = <STDIN>;
         chomp($input);
         if ($input ne  "") {$tool_wordlist_regex = $input};
@@ -317,15 +317,75 @@ sub run_wordlist {
     my $selection = <STDIN>;
     chomp($selection);
     if ($selection eq "1") {
+        $wordlist_freqdist->clear_hash();  # clear out the FreqDist
         if ($tool_wordlist_corpus_checkval eq "0") {  # use regular files
             if ($tool_wordlist_regex_checkval eq "1") {
+                print("using local regex $tool_wordlist_regex\n");
                 $splitter->set_non_word_regexp("$tool_wordlist_regex");
             }
-            else {
+            elsif ($tool_wordlist_regex_checkval eq "0") {
+                print("using global regex $global_regex\n");
                 $splitter->set_non_word_regexp("$global_regex");
             }
-            foreach my $filename ($filenames) {
-                
+            foreach my $filename (@filenames) {
+                $wordlist_freqdist->update(tokenize_file($filename, $splitter));  # TODO: add case sensitive
+            }
+        }
+        else {
+            foreach my $filename (@filenames) {
+                my $current_freq_dist = new FreqDist();
+                $current_freq_dist->open_from_txt($filename);
+                $wordlist_freqdist->update($current_freq_dist);
+            }
+        }
+        print("Name of file to save in: ");
+        my $save_name = <STDIN>;
+        chomp($save_name);
+        $wordlist_freqdist->out_to_txt($save_name);
+
+        print("Display results (1/0): ");
+        my $answer = <STDIN>;
+        chomp($answer);
+        if ($answer eq "1") {
+            open(my $in, "<", $save_name) or warn "Could not open $save_name, $!\n";
+            while(my $line = <$in>) {
+                print($line);
+            }
+            close $in;
+        }
+    }
+    elsif ($selection eq "2") {  # TODO: get search to work
+        print("Regex (0) or text (1): ");
+        my $reg_or_txt = <STDIN>;
+        chomp($reg_or_txt);
+
+        if ($reg_or_txt eq "0") {
+            print("0\n");
+        }
+        elsif ($reg_or_txt eq "1") {
+            print("1\n");
+        }
+
+        print("Query: ");
+        my $query = <STDIN>;
+        chomp($query);
+
+        if ($reg_or_txt eq "1") {
+            $query = quotemeta($query);  # escape special characters
+        }
+
+        print("Exact match (0) or partial match (1): ");
+        my $exact_or_partial = <STDIN>;
+        chomp($exact_or_partial);
+
+        foreach my $token ($wordlist_freqdist->get_keys()) {
+            if ($exact_or_partial eq "1") {  # not exact
+                if ($token =~ /$query/) {
+                    printf("%d\t%s\n", $wordlist_freqdist->get_count($token), $token);
+                }
+            }
+            elsif ($token =~ /^$query$/) {  # anchor at beginning and end
+                printf("%d\t%s\n", $wordlist_freqdist->get_count($token), $token);
             }
         }
     }
@@ -334,7 +394,7 @@ sub run_wordlist {
 sub main {
     my $choice = -1;
     my $seleciton = -1;
-    while ($choice != "0") {
+    while ($choice ne "0") {
         print("
     Main menu
     1: Global settings
@@ -458,6 +518,9 @@ sub main {
                     warn "$main_filename could not be found.";
                 }
             }
+        }
+        elsif ($choice eq "6") {
+            run_wordlist();
         }
     }
 }
