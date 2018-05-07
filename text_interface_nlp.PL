@@ -95,14 +95,15 @@ sub set_tool_settings_wordlist {
     chomp($input);
     if ($input ne  "") {$tool_wordlist_case = int($input)};
 
-    print("Use global regex for nontoken definition (currently $global_regex) (1/0). Currently $tool_wordlist_regex_checkval: ");
+    print("Use global regex for nontoken definition (currently $global_regex) (0) or write your own (1).
+    Currently $tool_wordlist_regex_checkval: ");
     $input = <STDIN>;
     chomp($input);
     # TODO: why isn't this working?
-    if ($input ne  "") {$tool_wordlist_regex_checkval = int($input)};
+    if ($input ne  "") {$tool_wordlist_regex_checkval = $input};
 
     if ($tool_wordlist_regex_checkval eq "1") {
-        print("Set wordlist regex for nontoken (simplest way is [^nontoken]+). Currently $tool_wordlist_regex: ");
+        print("Set wordlist regex for nontoken (simplest way is [^token]+). Currently $tool_wordlist_regex: ");
         $input = <STDIN>;
         chomp($input);
         if ($input ne  "") {$tool_wordlist_regex = $input};
@@ -111,7 +112,7 @@ sub set_tool_settings_wordlist {
     print("Load wordlist from text files (0) or wordlist files (1). Currently $tool_wordlist_corpus_checkval: ");
     $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_wordlist_corpus_checkval = int($input)};
+    if ($input ne  "") {$tool_wordlist_corpus_checkval = $input};
     print("\n");
 }
 
@@ -128,12 +129,12 @@ sub set_tool_settings_concordance {
     print("Case sensitive: same as global (currently $global_case_sensitive) (0), sensitive (1), or insensitive (2). Currently $tool_concordance_case: ");
     my $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_concordance_case = int($input)};
+    if ($input ne  "") {$tool_concordance_case = $input};
 
     print("Window (how many tokens to display before and after query). Currently $tool_concordance_win_length: ");
     $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_concordance_win_length = int($input)};
+    if ($input ne  "") {$tool_concordance_win_length = $input};
     print("\n");
 }
 
@@ -146,12 +147,12 @@ sub set_tool_settings_ngram {
     print("Case sensitive: same as global (currently $global_case_sensitive) (0), sensitive (1), or insensitive (2). Currently $tool_ngram_case: ");
     my $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_ngram_case = int($input)};
+    if ($input ne  "") {$tool_ngram_case = $input};
 
     print("Use global regex for token definition (currently $global_regex) (1/0). Currently $tool_ngram_regex_checkval: ");
     $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_ngram_regex_checkval = int($input)};
+    if ($input ne  "") {$tool_ngram_regex_checkval = $input};
 
     if (! $tool_ngram_regex_checkval) {
         print("Filename containing token regexes for ngrams. Currently $tool_ngram_regex_filename: ");
@@ -163,7 +164,7 @@ sub set_tool_settings_ngram {
     print("Use file for nontokens (1/0). Currently $tool_ngram_nontoken_checkval: ");
     $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_ngram_nontoken_checkval = int($input)};
+    if ($input ne  "") {$tool_ngram_nontoken_checkval = $input};
 
     #TODO: not working
     if (! $tool_ngram_nontoken_checkval) {
@@ -176,7 +177,7 @@ sub set_tool_settings_ngram {
     print("Use file for stopwords (1/0). Currently $tool_ngram_stop_checkval: ");
     $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_ngram_stop_checkval = int($input)};
+    if ($input ne  "") {$tool_ngram_stop_checkval = $input};
 
     #TODO: not working
     if (! $tool_ngram_stop_checkval) {
@@ -190,7 +191,7 @@ sub set_tool_settings_ngram {
     $input = <STDIN>;
     chomp($input);
     # TODO: why isn't this working?
-    if ($input ne  "") {$tool_ngram_freq_checkval = int($input)};
+    if ($input ne  "") {$tool_ngram_freq_checkval = $input};
 
     #TODO: not working
     if (! $tool_ngram_freq_checkval) {
@@ -204,7 +205,7 @@ sub set_tool_settings_ngram {
     $input = <STDIN>;
     chomp($input);
     # TODO: why isn't this working?
-    if ($input ne  "") {$tool_ngram_ufreq_checkval = int($input)};
+    if ($input ne  "") {$tool_ngram_ufreq_checkval = $input};
 
     #TODO: not working
     if (! $tool_ngram_ufreq_checkval) {
@@ -218,12 +219,12 @@ sub set_tool_settings_ngram {
     $input = <STDIN>;
     chomp($input);
     # TODO: why isn't this working?
-    if ($input ne  "") {$tool_ngram_newline_checkval = int($input)};
+    if ($input ne  "") {$tool_ngram_newline_checkval = $input};
 
     print("Number of digits to round results to. Currently $tool_ngram_precision: ");
     $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_ngram_newline_checkval = int($input)};
+    if ($input ne  "") {$tool_ngram_newline_checkval = $input};
 
     print("Measure to use for bigrams.
     CHI::phi.pm, CHI::tscore.pm, CHI::x2,
@@ -301,7 +302,7 @@ sub set_tool_settings_keyword {
     print("Use text files (0) or wordlists (1). Currently $tool_keyword_reference_checkval: ");
     $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_keyword_reference_checkval = int($input)};
+    if ($input ne  "") {$tool_keyword_reference_checkval = $input};
 }
 
 sub view_tool_settings_keyword {
