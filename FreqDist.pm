@@ -72,9 +72,11 @@ sub remove_type {
 
 sub add_token_freq {
     my ($self, $token, $freq) = @_;
-    $self->{_hash}{$token} += $freq;
-    $self->{_tokens} += $freq;
-    $self->{_types} = keys %{$self->{_hash}};
+    if ($freq > 0) {
+        $self->{_hash}{$token} += $freq;
+        $self->{_tokens} += $freq;
+        $self->{_types} = keys %{$self->{_hash}};
+    }
 }
 
 sub get_max {
@@ -116,15 +118,18 @@ sub out_to_txt {
 sub open_from_txt {
     my ($self, $filename) = @_;
     # clear out the old values
-    foreach my $key ($self->{_hash}) {
-        $self->remove_type($key);
-    }
+    $self->clear_hash();
     # read in the new values
     open(my $in, "<", $filename) or die "Couldn't open $filename, $!";
     while(my $line = <$in>) {
         next if $. < 2;  # skip first 2 lines which have types and tokens (https://stackoverflow.com/questions/14393295/best-way-to-skip-a-header-when-reading-in-from-a-text-file-in-perl)
+        chomp($line);  # get rid of newline at end
         my @word_and_freq = split(/\t/, $line);
-        $self->add_token_freq($word_and_freq[0], $word_and_freq[1]);
+        my $len = @word_and_freq;
+        next if $len < 3;
+        my $freq = $word_and_freq[1];
+        $freq = int($freq);
+        $self->add_token_freq($word_and_freq[2], $freq);
     }
     close $in;
 }
