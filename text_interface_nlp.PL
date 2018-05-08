@@ -1,54 +1,53 @@
 use strict;
 use warnings;
+# use diagnostics;
 use Lingua::EN::Segmenter::TextTiling qw(segments);
 use FreqDist;
 use Time::HiRes qw(time);
 use Path::Tiny qw(path);
 require "./Tokenize.PL";
 
-my $show_full_pathname = 1;
+my $show_full_pathname = "1";
 my $global_default_extension = ".txt";
-my $global_save_intermediate = 0;
+my $global_save_intermediate = "0";
 my $global_save_intermediate_dir = "";
 
 my $global_regex = "[^a-zA-Z]+";
-my $global_case_sensitive = 0;
+my $global_case_sensitive = "0";  # case insensitive
 my $global_stop_words = ();
 
-my $tool_wordlist_case = 0;  # in this case means (match whatever global is)
-my $tool_wordlist_regex_checkval = 0;  # match whatever global is
+my $tool_wordlist_case = "0";  # in this case means (match whatever global is)
+my $tool_wordlist_regex_checkval = "0";  # match whatever global is
 my $tool_wordlist_regex = "";
-my $tool_wordlist_corpus_checkval = 0;  # raw files (1 means wordlists)
+my $tool_wordlist_corpus_checkval = "0";  # raw files (1 means wordlists)
 my $tool_wordlist_wordlists = ();
 
-my $tool_concordance_case = 0;  # same as global settings
-my $tool_concordance_win_length = 7;
+my $tool_concordance_case = "0";  # same as global settings
+my $tool_concordance_win_length = "7";
 
-my $tool_ngram_case = 0;
-my $tool_ngram_regex_checkval = 1;
+my $tool_ngram_case = "0";
 my $tool_ngram_regex_filename = "";
-my $tool_ngram_nontoken_checkval = 0;
+my $tool_ngram_nontoken_checkval = "0";
 my $tool_ngram_nontoken_filename = "";
-my $tool_ngram_nontokens = ();
-my $tool_ngram_stop_checkval = 0;
+my $tool_ngram_stop_checkval = "0";
 my $tool_ngram_stop_filename = "";
-my $tool_ngram_stopwords = ();
-my $tool_ngram_freq_checkval = 0;
-my $tool_ngram_freq = 1;
-my $tool_ngram_ufreq_checkval = 0;
-my $tool_ngram_ufreq = 1;
-my $tool_ngram_newline_checkval = 1;
-my $tool_ngram_precision = 6;
+my $tool_ngram_freq_checkval = "0";
+my $tool_ngram_freq = "1";
+my $tool_ngram_ufreq_checkval = "0";
+my $tool_ngram_ufreq = "1";
+my $tool_ngram_newline_checkval = "1";
+my $tool_ngram_precision = "6";
 my $tool_ngram_measure_2 = "MI::ll.pm";
 my $tool_ngram_measure_3 = "MI::ll.pm";
 my $tool_ngram_measure_4 = "MI::ll.pm";
+my $tool_ngram_script_dir = "/Users/cat/perl5/bin/";
 
-my $tool_keyword_p = 0.01;
-my $tool_keyword_reference_checkval = 0;
+my $tool_keyword_p = "0.01";
+my $tool_keyword_reference_checkval = "0";
 
-my $wordlist_types = 0;
-my $wordlist_tokens = 0;
-my $wordlist_search_num = 0;
+my $wordlist_types = "0";
+my $wordlist_tokens = "0";
+my $wordlist_search_num = "0";
 my $wordlist_freqdist = new FreqDist;
 
 my @filenames = ();
@@ -149,16 +148,14 @@ sub set_tool_settings_ngram {
     chomp($input);
     if ($input ne  "") {$tool_ngram_case = $input};
 
-    print("Use global regex for token definition (currently $global_regex) (1/0). Currently $tool_ngram_regex_checkval: ");
+    print("Filename containing token regexes for ngrams. Currently $tool_ngram_regex_filename: ");
     $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_ngram_regex_checkval = $input};
-
-    if (! $tool_ngram_regex_checkval) {
-        print("Filename containing token regexes for ngrams. Currently $tool_ngram_regex_filename: ");
-        $input = <STDIN>;
-        chomp($input);
-        if (! $input eq  "") {$tool_ngram_regex_filename = $input};
+    if (-f $input) {
+        $tool_ngram_regex_filename = $input;
+    }
+    else {
+        warn("$input could not be found.");
     }
 
     print("Use file for nontokens (1/0). Currently $tool_ngram_nontoken_checkval: ");
@@ -167,7 +164,7 @@ sub set_tool_settings_ngram {
     if ($input ne  "") {$tool_ngram_nontoken_checkval = $input};
 
     #TODO: not working
-    if (! $tool_ngram_nontoken_checkval) {
+    if ($tool_ngram_nontoken_checkval eq "1") {
         print("Filename containing nontoken regexes for ngrams (currently $tool_ngram_nontoken_filename): ");
         $input = <STDIN>;
         chomp($input);
@@ -180,7 +177,7 @@ sub set_tool_settings_ngram {
     if ($input ne  "") {$tool_ngram_stop_checkval = $input};
 
     #TODO: not working
-    if (! $tool_ngram_stop_checkval) {
+    if ($tool_ngram_stop_checkval eq "1") {
         print("Filename containing stopword regexes for ngrams. Currently $tool_ngram_stop_filename: ");
         $input = <STDIN>;
         chomp($input);
@@ -194,7 +191,7 @@ sub set_tool_settings_ngram {
     if ($input ne  "") {$tool_ngram_freq_checkval = $input};
 
     #TODO: not working
-    if (! $tool_ngram_freq_checkval) {
+    if ($tool_ngram_freq_checkval eq "1") {
         print("Minimum frequency. Currently $tool_ngram_freq: ");
         $input = <STDIN>;
         chomp($input);
@@ -208,7 +205,7 @@ sub set_tool_settings_ngram {
     if ($input ne  "") {$tool_ngram_ufreq_checkval = $input};
 
     #TODO: not working
-    if (! $tool_ngram_ufreq_checkval) {
+    if ($tool_ngram_ufreq_checkval eq "1") {
         print("Maximum frequency. Currently $tool_ngram_ufreq: ");
         $input = <STDIN>;
         chomp($input);
@@ -246,16 +243,21 @@ sub set_tool_settings_ngram {
     chomp($input);
     if ($input ne  "") {$tool_ngram_measure_3 = $input};
 
+    print("Path to count.pl and statistic.pl. Currently $tool_ngram_script_dir: ");
+    $input = <STDIN>;
+    chomp($input);
+    if (-f $input."count.pl" and -f $input."statistic.pl") {
+        $tool_ngram_script_dir = $input;
+    }
+    else {
+        warn("count.pl and/or statistic.pl couldn't be found in $tool_ngram_script_dir");
+    }
+
     print("\n");
 }
 
 sub view_tool_settings_ngram {
     print("Case sensitive: $tool_ngram_case\n");
-
-    print("Use global regex for token definition (1/0): $tool_ngram_regex_checkval\n");
-    if ($tool_ngram_regex_checkval) {
-        print("Filename containing token regexes for ngrams: $tool_ngram_regex_filename\n");
-    }
 
     print("Use file for nontokens (1/0): $tool_ngram_nontoken_checkval\n");
     if (! $tool_ngram_nontoken_checkval) {
@@ -285,6 +287,8 @@ sub view_tool_settings_ngram {
     print("Measure to use for bigrams: $tool_ngram_measure_2\n");
 
     print("Measure to use for trigrams: $tool_ngram_measure_3\n");
+
+    print("Path to count.pl and statistic.pl: $tool_ngram_script_dir\n");
 }
 
 sub set_tool_settings_keyword {
@@ -444,6 +448,44 @@ sub run_concordance {
     }
 }
 
+sub run_ngrams {
+    if (($tool_ngram_case eq "0" and $global_case_sensitive eq "0")
+    or $tool_ngram_case eq "2") {
+        print("Creating lowercase files to be case insensitive\n");
+        foreach my $filename (@filenames) {
+            open(my $in, "<", $filename) or warn("Couldn't open $filename, $!");
+            open(my $out, ">", "${filename}_lower.txt") or warn("Couldn't open $filename, $!");
+            while(my $line = <$in>) {
+                print $out lc($line);
+            }
+            close $in;
+            close $out;
+        }
+    }
+
+    print("N (how many tokens in an ngram): ");
+    $n = <STDIN>;
+    chomp($n);
+
+    @args = ("--token=$tool_ngram_regex_filename");
+
+    if ($tool_ngram_nontoken_checkval eq "1") {push(@args, "--nontoken=$tool_ngram_nontoken_filename");}
+    if ($tool_ngram_stop_checkval eq "1") {push(@args, "--stop=$tool_ngram_stop_filename");}
+    if ($tool_ngram_freq_checkval eq "1") {push(@args, "--frequency=$tool_ngram_freq");}
+    if ($tool_ngram_ufreq_checkval eq "1") {push(@args, "--ufrequency=$tool_ngram_ufreq");}
+    if ($tool_ngram_newline_checkval eq "0") {push(@args, "--newline");}
+
+    # my $tool_ngram_freq_checkval = 0;
+    # my $tool_ngram_freq = 1;
+    # my $tool_ngram_ufreq_checkval = 0;
+    # my $tool_ngram_ufreq = 1;
+    # my $tool_ngram_newline_checkval = 1;
+    # my $tool_ngram_precision = 6;
+    # my $tool_ngram_measure_2 = "MI::ll.pm";
+    # my $tool_ngram_measure_3 = "MI::ll.pm";
+    # my $tool_ngram_measure_4 = "MI::ll.pm";
+}
+
 sub main {
     my $choice = -1;
     my $seleciton = -1;
@@ -597,6 +639,9 @@ sub main {
         }
         elsif ($choice eq "7") {
             run_concordance();
+        }
+        elsif ($choice eq "8") {
+            run_ngrams();
         }
     }
 }
