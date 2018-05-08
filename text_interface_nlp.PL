@@ -5,6 +5,7 @@ use Lingua::EN::Segmenter::TextTiling qw(segments);
 use FreqDist;
 use Time::HiRes qw(time);
 use Path::Tiny qw(path);
+use File::Basename;
 require "./Tokenize.PL";
 
 my $show_full_pathname = "1";
@@ -40,7 +41,7 @@ my $tool_ngram_precision = "6";
 my $tool_ngram_measure_2 = "MI::ll.pm";
 my $tool_ngram_measure_3 = "MI::ll.pm";
 my $tool_ngram_measure_4 = "MI::ll.pm";
-my $tool_ngram_script_dir = "/Users/cat/perl5/bin/";
+my $tool_ngram_script_dir = "/Users/cat/perl5/bin";
 
 my $tool_keyword_p = "0.01";
 my $tool_keyword_reference_checkval = "0";
@@ -246,7 +247,7 @@ sub set_tool_settings_ngram {
     print("Path to count.pl and statistic.pl. Currently $tool_ngram_script_dir: ");
     $input = <STDIN>;
     chomp($input);
-    if (-f $input."count.pl" and -f $input."statistic.pl") {
+    if (-f "$input/count.pl" and -f "$input/statistic.pl") {
         $tool_ngram_script_dir = $input;
     }
     else {
@@ -449,12 +450,29 @@ sub run_concordance {
 }
 
 sub run_ngrams {
+    print("Destination directory: ");
+    my $dest = <STDIN>;
+    chomp($dest);
+    if (! -d $dest) {
+        warn("$dest could not be found.");
+        return -1;
+    }
+
+    print("N (how many tokens in an ngram): ");
+    my $n = <STDIN>;
+    chomp($n);
+
+    print("Filename to store results in: ");
+    my $result_name = <STDIN>;
+    chomp($result_name);
+
     if (($tool_ngram_case eq "0" and $global_case_sensitive eq "0")
     or $tool_ngram_case eq "2") {
         print("Creating lowercase files to be case insensitive\n");
         foreach my $filename (@filenames) {
+            my $basename = basename($filename);
             open(my $in, "<", $filename) or warn("Couldn't open $filename, $!");
-            open(my $out, ">", "${filename}_lower.txt") or warn("Couldn't open $filename, $!");
+            open(my $out, ">", "$dest/${basename}_lower.txt") or warn("Couldn't open $dest/${basename}_lower.txt, $!");
             while(my $line = <$in>) {
                 print $out lc($line);
             }
@@ -462,28 +480,59 @@ sub run_ngrams {
             close $out;
         }
     }
+    else {
+        print("Copying files for analysis");
+        foreach my $filename (@filenames) {
+            copy($filename, $dest) or warn("Failed to copy $filename to $dest");
+        }
+    }
 
-    print("N (how many tokens in an ngram): ");
-    $n = <STDIN>;
-    chomp($n);
-
-    @args = ("--token=$tool_ngram_regex_filename");
+    my @args = ($^X, "$tool_ngram_script_dir/count.pl", "--ngram=$n", "--token=$tool_ngram_regex_filename");
 
     if ($tool_ngram_nontoken_checkval eq "1") {push(@args, "--nontoken=$tool_ngram_nontoken_filename");}
     if ($tool_ngram_stop_checkval eq "1") {push(@args, "--stop=$tool_ngram_stop_filename");}
     if ($tool_ngram_freq_checkval eq "1") {push(@args, "--frequency=$tool_ngram_freq");}
     if ($tool_ngram_ufreq_checkval eq "1") {push(@args, "--ufrequency=$tool_ngram_ufreq");}
     if ($tool_ngram_newline_checkval eq "0") {push(@args, "--newline");}
+    push(@args, "$dest/${result_name}.count", $dest);
 
-    # my $tool_ngram_freq_checkval = 0;
-    # my $tool_ngram_freq = 1;
-    # my $tool_ngram_ufreq_checkval = 0;
-    # my $tool_ngram_ufreq = 1;
-    # my $tool_ngram_newline_checkval = 1;
-    # my $tool_ngram_precision = 6;
-    # my $tool_ngram_measure_2 = "MI::ll.pm";
-    # my $tool_ngram_measure_3 = "MI::ll.pm";
-    # my $tool_ngram_measure_4 = "MI::ll.pm";
+    print("Getting ngrams\n");
+    system(@args);  # run count.pl
+
+    print("Display results (1/0): ");
+    my $display = <STDIN>;
+    chomp($display);
+
+    # if ($n lt "5" and $n gt "1") {
+    #     @args = ($^X, "$tool_ngram_script_dir/statistic.pl", "--ngram=$n", "--precision=$tool_ngram_precision");
+    #     if ($n eq "2") {push(@args, $tool_ngram_measure_2);}
+    #     elsif ($n eq "3") {push(@args, $tool_ngram_measure_3);}
+    #     elsif ($n eq "4") {push(@args, $tool_ngram_measure_4);}
+    #     push(@args, "$dest/${result_name}.stat", "$dest/${result_name}.count");
+    #
+    #     print("Calculating statistic\n");
+    #     system(@args);  # run statistic.pl
+    #     if ($display eq "1") {
+    #         open(my $in, "<", "$dest/${result_name}.stat") or warn "Could not open $dest/${result_name}.stat, $!\n";
+    #         while(my $line = <$in>) {
+    #             print($line);
+    #         }
+    #     }
+    # }
+    # elsif ($display eq "1") {
+    #     open(my $in, "<", "$dest/${result_name}.count") or warn "Could not open $dest/${result_name}.count, $!\n";
+    #     while(my $line = <$in>) {
+    #         print($line);
+    #     }
+    # }
+    
+    # TODO: get statistic working
+    if ($display eq "1") {
+        open(my $in, "<", "$dest/${result_name}.count") or warn "Could not open $dest/${result_name}.count, $!\n";
+        while(my $line = <$in>) {
+            print($line);
+    }
+    # TODO: cleanup?
 }
 
 sub main {
