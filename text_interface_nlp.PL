@@ -45,6 +45,7 @@ my $tool_ngram_script_dir = "/Users/cat/perl5/bin";
 
 my $tool_keyword_p = "0.01";
 my $tool_keyword_reference_checkval = "0";
+my @tool_keyword_files = ();
 
 my $wordlist_types = "0";
 my $wordlist_tokens = "0";
@@ -308,11 +309,74 @@ sub set_tool_settings_keyword {
     $input = <STDIN>;
     chomp($input);
     if ($input ne  "") {$tool_keyword_reference_checkval = $input};
+
+    print("Keyword files are @tool_keyword_files. 1 to add files, 2 to add directory, 3 to remove files\n");
+    $input = <STDIN>;
+    chomp($input);
+
+    if ($input eq "1") {
+        print("Filenames separated by spaces: ");
+        my $names = <STDIN>;
+        chomp($names);
+        foreach my $filename (split(" ", $names)) {
+            if (-f $filename) {
+                push(@tool_keyword_files, $filename);
+            }
+            else {
+                warn("$filename could not be found.");
+            }
+        }
+    }
+    elsif ($input eq "2") {
+        print("Directory: ");
+        my $dirname = <STDIN>;
+        chomp($dirname);
+        if (-d $dirname) {
+            opendir(DIR, $dirname) or warn "Could not open $dirname, $!\n";
+            while (my $filename = readdir(DIR)) {
+                $filename = "$dirname/$filename";
+                if (-f $filename) {
+                    if ($filename =~ /$global_default_extension$/)  {
+                        push(@tool_keyword_files, $filename);
+                    }
+                    else {
+                        warn("Skipping $filename because it doesn't match the extension");
+                    }
+                }
+                else {
+                    warn("$filename could not be found.");
+                }
+            }
+        }
+        else {
+            warn("$dirname could not be found.");
+        }
+    }
+    elsif ($input eq "3") {
+        for my $i (0..$#tool_keyword_files) {
+            my $filename = $tool_keyword_files[$i];
+            print("$i\t$filename\n");
+        }
+        print("Indexes of files to remove separated by spaces or 'all' to remove all: ");
+        my $input = <STDIN>;
+        chomp($input);
+        if ($input eq "all") {
+            @tool_keyword_files = ();
+        }
+        else {
+            my @indexes = split(" ", $input);
+            foreach my $del_idx (@indexes) {
+                $del_idx = int($del_idx);
+                splice(@tool_keyword_files, $del_idx, 1);
+            }
+        }
+    }
 }
 
 sub view_tool_settings_keyword {
     print("P value for keyword analysis: $tool_keyword_p\n");
     print("Use text files (0) or wordlists (1): $tool_keyword_reference_checkval\n");
+    print("Keyword files: @tool_keyword_files\n");
 }
 
 sub run_wordlist {
@@ -525,19 +589,20 @@ sub run_ngrams {
     #         print($line);
     #     }
     # }
-    
+
     # TODO: get statistic working
     if ($display eq "1") {
         open(my $in, "<", "$dest/${result_name}.count") or warn "Could not open $dest/${result_name}.count, $!\n";
         while(my $line = <$in>) {
             print($line);
+        }
     }
     # TODO: cleanup?
 }
 
 sub main {
-    my $choice = -1;
-    my $seleciton = -1;
+    my $choice = "-1";
+    my $seleciton = "-1";
     while ($choice ne "0") {
         print("
     Main menu
@@ -554,6 +619,7 @@ sub main {
     ");
         my $choice = <STDIN>;
         chomp($choice);
+        last if ($choice eq "0");
         if ($choice eq "1") {
             set_global_settings();
             view_global_settings();
@@ -609,7 +675,7 @@ sub main {
                 my $dirname = <STDIN>;
                 chomp($dirname);
                 if (-d $dirname) {
-                    opendir(DIR, $dirname) or die "Could not open $dirname, $!\n";
+                    opendir(DIR, $dirname) or warn "Could not open $dirname, $!\n";
                     while (my $filename = readdir(DIR)) {
                         $filename = "$dirname/$filename";
                         if (-f $filename) {
@@ -672,11 +738,19 @@ sub main {
                 my $filename = $filenames[$i];
                 print("$i $filename\n");
             }
-            print("Index of file to delete: ");
-            my $del_idx = <STDIN>;
-            chomp($del_idx);
-            $del_idx = int($del_idx);
-            splice(@filenames, $del_idx, 1);
+            print("Indexes of files to remove separated by spaces or 'all' to remove all: ");
+            my $input = <STDIN>;
+            chomp($input);
+            if ($input eq "all") {
+                @filenames = ();
+            }
+            else {
+                my @indexes = split(" ", $input);
+                foreach my $del_idx (@indexes) {
+                    $del_idx = int($del_idx);
+                    splice(@filenames, $del_idx, 1);
+                }
+            }
         }
         elsif ($choice eq "5") {
             for my $filename (@filenames) {
@@ -691,6 +765,9 @@ sub main {
         }
         elsif ($choice eq "8") {
             run_ngrams();
+        }
+        elsif ($choice eq "9") {
+            print();
         }
     }
 }
