@@ -43,14 +43,17 @@ my $tool_ngram_measure_3 = "MI::ll.pm";
 my $tool_ngram_measure_4 = "MI::ll.pm";
 my $tool_ngram_script_dir = "/Users/cat/perl5/bin";
 
-my $tool_keyword_p = "0.01";
-my $tool_keyword_reference_checkval = "0";
+my $tool_keyword_p = 0.01;
+my $tool_keyword_reference_checkval = "0";  # text files
 my @tool_keyword_files = ();
+my $tool_keyword_save_freqdist = "0";
+my $keyword_outfilename = "";
 
 my $wordlist_types = "0";
 my $wordlist_tokens = "0";
 my $wordlist_search_num = "0";
 my $wordlist_freqdist = new FreqDist;
+my $keyword_freqdist = new FreqDist;
 
 my @filenames = ();
 
@@ -229,7 +232,7 @@ sub set_tool_settings_ngram {
     CHI::phi.pm, CHI::tscore.pm, CHI::x2,
     dice::dice.pm, dice::jaccard.pm,
     Fisher::left.pm, Fisher::right.pm, Fisher::twotailed.pm,
-    Log likelihood (MI::ll.pm), Pointwise Mutual Information (MM::pmi.pm),
+    Log likelihood (ll.pm), Pointwise Mutual Information (MM::pmi.pm),
     Poisson Stirling (MI::ps.pm), True Mutual Information (MI::tmi.pm),
     odds.pm
     Currently $tool_ngram_measure_2: ");
@@ -303,7 +306,23 @@ sub set_tool_settings_keyword {
     Currently $tool_keyword_p: ");
     my $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_keyword_p = $input};  # TODO: figure out if this is real
+
+    # convert input to float. This is a bit messy. TODO: refactor
+    if ($input eq  "0.05" or $input eq ".05") {
+        $tool_keyword_p = 0.05;
+    }
+    elsif ($input eq "0.01" or $input eq ".01") {
+        $tool_keyword_p = 0.01;
+    }
+    elsif ($input eq "0.001" or $input eq ".001") {
+        $tool_keyword_p = 0.001;
+    }
+    elsif ($input eq "0.0001" or $input eq ".0001") {
+        $tool_keyword_p = 0.0001;
+    }
+    elsif ($input eq "0") {
+        $tool_keyword_p = 0;
+    }
 
     print("Use text files (0) or wordlists (1). Currently $tool_keyword_reference_checkval: ");
     $input = <STDIN>;
@@ -370,6 +389,18 @@ sub set_tool_settings_keyword {
                 splice(@tool_keyword_files, $del_idx, 1);
             }
         }
+    }
+
+    print("Save keyword FreqDist to a file after creating it (1/0). Currently $tool_keyword_save_freqdist: ");
+    $input = <STDIN>;
+    chomp($input);
+
+    if ($input eq "1") {
+        print("Filename to store keyword FreqDist in. Currently $keyword_outfilename: ");
+        $input = <STDIN>;
+        chomp($input);
+
+        if ($input ne "") {$keyword_outfilename = $input;}
     }
 }
 
@@ -600,6 +631,50 @@ sub run_ngrams {
     # TODO: cleanup?
 }
 
+sub run_keyword {
+    print("Creating FreqDist for keyword files\n");
+    $keyword_freqdist = new FreqDist;
+
+    if ($tool_keyword_reference_checkval eq "1") {
+        foreach my $filename (@tool_keyword_files) {
+            my $current_freq_dist = new FreqDist;
+            $current_freq_dist->open_from_txt($filename);
+            $keyword_freqdist->update($current_freq_dist);
+        }
+    }
+    else {
+        foreach my $filename (@tool_keyword_files) {
+            my $current_freq_dist = tokenize_file($filename, $splitter);
+            $keyword_freqdist->update($current_freq_dist);
+        }
+    }
+
+    if ($tool_keyword_save_freqdist) {
+        $keyword_freqdist->out_to_txt($keyword_outfilename);
+    }
+
+    print("Calculating keyword analysis\n");
+    $wordlist_freqdist->keyword_analysis($keyword_freqdist, int($tool_keyword_p));
+
+    my $done = 0;
+    while (! $done) {  # loop so you don't lose the whole thing because you mistyped
+        print("Filename (or 0 to print to screen, or -1 to exit): ");
+        my $result_name = <STDIN>;
+        chomp($result_name);
+
+        # TODO: get printing to STDOUT to work
+        if ($result_name eq "0") {
+            $wordlist_freqdist->print_keywords(*STDOUT);
+        }
+        elsif ($result_name eq "-1") {
+            $done = 1;
+        }
+        else {
+            $wordlist_freqdist->print_keywords($result_name);
+        }
+    }
+}
+
 sub main {
     my $choice = "-1";
     my $seleciton = "-1";
@@ -767,7 +842,7 @@ sub main {
             run_ngrams();
         }
         elsif ($choice eq "9") {
-            print();
+            run_keyword();
         }
     }
 }

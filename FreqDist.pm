@@ -1,20 +1,22 @@
 #!/Users/cat/perl
 use strict;
 use warnings;
+package FreqDist;
+use Data::Dumper qw(Dumper);
 # use diagnostics;
 # use Switch;
 use lib '/Users/cat/perl5/lib/perl5';
-package FreqDist;
 
 sub new {
     my $class = shift;
     my %hash;
-    my @keywords;
+    my %keyword_dict;
+
     my $self = {
         _types => 0,
         _tokens => 0,
         _hash => \%hash,
-        _keyword_dicts => \@keywords,
+        _keyword_dict => \%keyword_dict,
     };
     bless $self, $class;
     return $self;
@@ -46,22 +48,39 @@ sub get_hash {
 
 sub get_count {
     my ($self, $token) = @_;
-    return $self->{_hash}{$token};
+    my $count = $self->{_hash}{$token};
+    if ($count) {
+        return $count;
+    }
+    else {
+        return 0;
+    }
 }
 
 sub get_prob_token {
     my ($self, $token) = @_;
-    return $self->{_hash}{$token} / $self->{_tokens};
+    if ($self->get_tokens() == 0) {
+        return 0;
+    }
+    else {
+        return $self->get_count($token) / $self->get_tokens();
+    }
 }
 
 sub get_prob_type {
     my ($self, $type) = @_;
-    return 1 / $self->{_types};
+    if ($self->get_types() == 0) {
+        return 0;
+    }
+    else {
+        return 1 / $self->get_types();
+    }
 }
 
 sub get_normalized_freq {
     my ($self, $token) = @_;
-    return $self->{_hash}{$token} / $self->{_tokens} * 1000000;
+    if ($token eq "" or $self->get_tokens() == 0) { return 0; }
+    return $self->get_count($token) / $self->get_tokens() * 1000000;
 }
 
 sub add_token {
@@ -73,7 +92,7 @@ sub add_token {
 
 sub remove_type {
     my ($self, $type) = @_;
-    my $tokens = $self->{_hash}{$type};
+    my $tokens = $self->get_count($type);
     delete $self->{_hash}{$type};
     $self->{_tokens} -= $tokens;
     $self->{_types} -= 1;
@@ -102,12 +121,12 @@ sub get_max {
     return ($max_token, $max_freq)
 }
 
-sub clear_hash {
+sub clear_hash {  # TODO: fix this
     my ($self) = @_;
     $self->{_hash} = {};
     $self->{_types} = 0;
     $self->{_tokens} = 0;
-    $self->{_keyword_dicts} = ();
+    $self->{_keyword_dict} = {};
 }
 
 sub out_to_txt {
@@ -162,45 +181,65 @@ sub keyword_analysis {  # TODO: check declaration
     #     case 0 { $crit = 0; }
     #     else { $crit = 6.63; }
     # }
+    if ($p == 0.05) { $crit = 3.84; }
+    elsif ($p == 0.01) { $crit = 6.63; }
+    elsif ($p == 0.001) { $crit = 10.83; }
+    elsif ($p == 0.0001) { $crit = 15.13; }
+    elsif ($p == 0){ $crit = 0; }
+    else {
+        warn("Invalid p value. Setting p value to .01\n");
+        $crit = 6.63;
+    }
     $crit = 6.63;  # TODO: change later
-    my %keyword_hash = {};
+    my %keyword_hash;
     my $types1 = $self->get_types();
     my $types2 = $other->get_types();
     scalar keys $self->{_hash}; # reset the internal iterator so a prior each() doesn't affect the loop
+    # print("hash\n");
+    # print Dumper($self->{_hash});
     while(my($token, $freq1) = each $self->{_hash}) {
         my $freq2 = $other->get_count($token);
         my $norm1 = $self->get_normalized_freq($token);
-        my $norm2 = $other->get_normalized_freq($token);
+        my $norm2 = $freq2 == 0? 0 : $other->get_normalized_freq($token);
         my $tokens1 = $self->get_tokens();
         my $tokens2 = $other->get_tokens();
         my $num = ($freq1 + $freq2) / ($tokens1 + $tokens2);
         my $E1 = $tokens1 * $num;
         my $E2 = $tokens2 * $num;
-        my $keyness = $E2 > 0? 2 * ($freq1 * log($freq1/$E1) + ($freq2 * log($freq2/$E2))) : 2 * ($freq1 * log($freq1/$E1));
+
+        my $keyness;
+        if ($freq2 == 0 or $E2 == 0) {
+            $keyness = 2 * ($freq1 * log($freq1/$E1));
+        }
+        else {
+            $keyness = 2 * ($freq1 * log($freq1/$E1) + ($freq2 * log($freq2/$E2)));
+        }
         if ($keyness < $crit) {
             next;
         }
         $keyword_hash{$token} = {'keyness'=> $keyness, 'freq1'=>$freq1, 'norm1'=>$norm1, 'freq2'=>$freq2, 'norm2'=>$norm2};
+        print $keyword_hash{$token};
         # ({'keyness'=> $keyness, 'freq1'=>$freq1, 'norm1'=>$norm1, 'freq2'=>$freq2, 'norm2'=>$norm2}, ($types1, $tokens1), ($types2, $tokens));
+        print Dumper(\%keyword_hash);
     }
-    push($self->{_keyword_dicts}, \%keyword_hash);  # TODO: deal with types and tokens
+    $self->{_keyword_dict} = \%keyword_hash;  # TODO: deal with types and tokens
 }
 
 sub print_keywords {
-    my ($self, @filenames, @indexes) = @_;  # @indexes is a list of indexes of keyword hashes
-    foreach my $index (@indexes) {
-        my $filename = $filenames[$index];
-        open(my $out, ">", $filename) or die "Couldn't open $filename, $!";
-        my %keyword_hash = %{$self->{_keyword_dicts}[$index]};
-        printf($out "# Corpus 1:\t%s\t%d\t%d\n", $filename, 0, 0);  # TODO: deal with types and tokens
-        printf($out "# Corpus 2:\t%s\t%d\t%d\n", $filename, 0, 0);  # TODO: deal with types and tokens
-        printf($out "# %s\t%s\t%s\t%s\t%s\t%s", "word", "keyness", "freq1",
-        "norm1", "freq2", "norm2");
-        foreach my $key (sort { $keyword_hash{$a}{'keyness'} <=> $keyword_hash{$b}{'keyness'} } keys %keyword_hash) {
-            printf($out "%s\t%f\t%d\t%f\t%d\t%f", $key, $keyword_hash{$key}{'keyness'}, $keyword_hash{$key}{'freq1'},
-            $keyword_hash{$key}{'norm1'}, $keyword_hash{$key}{'freq2'}, $keyword_hash{$key}{'norm2'});
-        }
-        close($out);
+    my ($self, $filename) = @_;  # @indexes is a list of indexes of keyword hashes
+    open(my $out, ">", $filename) or warn("Couldn't open $filename, $!");
+    # my %keyword_hash = {$self->{_keyword_dict}};
+    # print Dumper($self->{_keyword_dict});
+    # print Dumper(\%keyword_hash);
+    # printf("%d\t%d", $self->get_types(), $self->get_tokens());
+    printf($out "# Corpus 1:\t%d\t%d\n", $self->get_types(), $self->get_tokens());  # TODO: deal with types and tokens
+    printf($out "# Corpus 2:\t%d\t%d\n", 0, 0);  # TODO: deal with types and tokens
+    printf($out "# %s\t%s\t%s\t%s\t%s\t%s\n", "word", "keyness", "freq1",
+    "norm1", "freq2", "norm2");
+    foreach my $key (sort { $self->{_keyword_dict}{$a}{'keyness'} <=> $self->{_keyword_dict}{$b}{'keyness'} } keys $self->{_keyword_dict}) {
+        printf($out "%s\t%f\t%d\t%f\t%d\t%f\n", $key, $self->{_keyword_dict}{$key}{'keyness'}, $self->{_keyword_dict}{$key}{'freq1'},
+        $self->{_keyword_dict}{$key}{'norm1'}, $self->{_keyword_dict}{$key}{'freq2'}, $self->{_keyword_dict}{$key}{'norm2'});
     }
+    close($out);
 }
 1;
