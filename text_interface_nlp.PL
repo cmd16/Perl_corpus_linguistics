@@ -38,9 +38,9 @@ my $tool_ngram_ufreq_checkval = "0";
 my $tool_ngram_ufreq = "1";
 my $tool_ngram_newline_checkval = "1";
 my $tool_ngram_precision = "6";
-my $tool_ngram_measure_2 = "MI::ll.pm";
-my $tool_ngram_measure_3 = "MI::ll.pm";
-my $tool_ngram_measure_4 = "MI::ll.pm";
+my $tool_ngram_measure_2 = "ll.pm";
+my $tool_ngram_measure_3 = "ll.pm";
+my $tool_ngram_measure_4 = "ll.pm";
 my $tool_ngram_script_dir = "/Users/cat/perl5/bin";
 
 my $tool_keyword_p = 0.01;
@@ -168,7 +168,6 @@ sub set_tool_settings_ngram {
     chomp($input);
     if ($input ne  "") {$tool_ngram_nontoken_checkval = $input};
 
-    #TODO: not working
     if ($tool_ngram_nontoken_checkval eq "1") {
         print("Filename containing nontoken regexes for ngrams (currently $tool_ngram_nontoken_filename): ");
         $input = <STDIN>;
@@ -181,7 +180,6 @@ sub set_tool_settings_ngram {
     chomp($input);
     if ($input ne  "") {$tool_ngram_stop_checkval = $input};
 
-    #TODO: not working
     if ($tool_ngram_stop_checkval eq "1") {
         print("Filename containing stopword regexes for ngrams. Currently $tool_ngram_stop_filename: ");
         $input = <STDIN>;
@@ -192,10 +190,8 @@ sub set_tool_settings_ngram {
     print("Set minimum frequency (1/0). Currently $tool_ngram_freq_checkval: ");
     $input = <STDIN>;
     chomp($input);
-    # TODO: why isn't this working?
     if ($input ne  "") {$tool_ngram_freq_checkval = $input};
 
-    #TODO: not working
     if ($tool_ngram_freq_checkval eq "1") {
         print("Minimum frequency. Currently $tool_ngram_freq: ");
         $input = <STDIN>;
@@ -206,10 +202,8 @@ sub set_tool_settings_ngram {
     print("Set maximum frequency (1/0). Currently $tool_ngram_ufreq_checkval: ");
     $input = <STDIN>;
     chomp($input);
-    # TODO: why isn't this working?
     if ($input ne  "") {$tool_ngram_ufreq_checkval = $input};
 
-    #TODO: not working
     if ($tool_ngram_ufreq_checkval eq "1") {
         print("Maximum frequency. Currently $tool_ngram_ufreq: ");
         $input = <STDIN>;
@@ -220,7 +214,6 @@ sub set_tool_settings_ngram {
     print("Count ngrams across newline tokens (1/0). Currently $tool_ngram_newline_checkval: ");
     $input = <STDIN>;
     chomp($input);
-    # TODO: why isn't this working?
     if ($input ne  "") {$tool_ngram_newline_checkval = $input};
 
     print("Number of digits to round results to. Currently $tool_ngram_precision: ");
@@ -229,11 +222,11 @@ sub set_tool_settings_ngram {
     if ($input ne  "") {$tool_ngram_newline_checkval = $input};
 
     print("Measure to use for bigrams.
-    CHI::phi.pm, CHI::tscore.pm, CHI::x2,
-    dice::dice.pm, dice::jaccard.pm,
-    Fisher::left.pm, Fisher::right.pm, Fisher::twotailed.pm,
-    Log likelihood (ll.pm), Pointwise Mutual Information (MM::pmi.pm),
-    Poisson Stirling (MI::ps.pm), True Mutual Information (MI::tmi.pm),
+    Chi phi (phi.pm), tscore.pm, Chi squared (x2.pm),
+    dice.pm, jaccard.pm,
+    fisherLeft.pm, fisherRight.pm, fisherTwotailed.pm,
+    Log likelihood (ll.pm), Pointwise Mutual Information (pmi.pm),
+    Poisson Stirling (ps.pm), True Mutual Information (tmi.pm),
     odds.pm
     Currently $tool_ngram_measure_2: ");
     $input = <STDIN>;
@@ -241,8 +234,8 @@ sub set_tool_settings_ngram {
     if ($input ne  "") {$tool_ngram_measure_2 = $input};
 
     print("Measure to use for trigrams.
-    Log likelihood (MI::ll.pm), Pointwise Mutual Information (MM::pmi.pm),
-    Poisson Stirling (MI::ps.pm), True Mutual Information (MI::tmi.pm),
+    Log likelihood (ll.pm), Pointwise Mutual Information (pmi.pm),
+    Poisson Stirling (ps.pm), True Mutual Information (tmi.pm),
     Currently $tool_ngram_measure_3: ");
     $input = <STDIN>;
     chomp($input);
@@ -408,6 +401,8 @@ sub view_tool_settings_keyword {
     print("P value for keyword analysis: $tool_keyword_p\n");
     print("Use text files (0) or wordlists (1): $tool_keyword_reference_checkval\n");
     print("Keyword files: @tool_keyword_files\n");
+    print("Save keyword FreqDist to a file after creating it (1/0): $tool_keyword_save_freqdist\n");
+    print("Filename to store keyword FreqDist in: $keyword_outfilename\n");
 }
 
 sub run_wordlist {
@@ -545,12 +540,32 @@ sub run_concordance {
 }
 
 sub run_ngrams {
-    print("Destination directory: ");
+    print("Destination directory (must be empty): ");
     my $dest = <STDIN>;
     chomp($dest);
     if (! -d $dest) {
         warn("$dest could not be found.");
         return -1;
+    }
+
+    opendir(DH, $dest) or warn "opendir() failed: $!";
+    my @to_delete = readdir(DH);
+    closedir(DH);
+    my $num_to_delete = @to_delete;
+
+    if ($num_to_delete > 0) {  # if there are files to delete (checking length)
+        warn("Directory supplied ($dest) is not empty. Type '1' to continue anyway (deleting the files)");
+        my $input = <STDIN>;
+        chomp($input);
+
+        if ($input eq "1") {
+            foreach my $file ( @to_delete ) {
+                unlink "$dest/$file" or warn "Could not unlink $file: $!";
+            }
+        }
+        else {
+            return -2;  # user error
+        }
     }
 
     print("N (how many tokens in an ngram): ");
@@ -589,7 +604,7 @@ sub run_ngrams {
     if ($tool_ngram_freq_checkval eq "1") {push(@args, "--frequency=$tool_ngram_freq");}
     if ($tool_ngram_ufreq_checkval eq "1") {push(@args, "--ufrequency=$tool_ngram_ufreq");}
     if ($tool_ngram_newline_checkval eq "0") {push(@args, "--newline");}
-    push(@args, "$dest/${result_name}.count", $dest);
+    push(@args, "$dest/${result_name}_count.txt", $dest);
 
     print("Getting ngrams\n");
     system(@args);  # run count.pl
@@ -598,37 +613,43 @@ sub run_ngrams {
     my $display = <STDIN>;
     chomp($display);
 
-    # if ($n lt "5" and $n gt "1") {
-    #     @args = ($^X, "$tool_ngram_script_dir/statistic.pl", "--ngram=$n", "--precision=$tool_ngram_precision");
-    #     if ($n eq "2") {push(@args, $tool_ngram_measure_2);}
-    #     elsif ($n eq "3") {push(@args, $tool_ngram_measure_3);}
-    #     elsif ($n eq "4") {push(@args, $tool_ngram_measure_4);}
-    #     push(@args, "$dest/${result_name}.stat", "$dest/${result_name}.count");
-    #
-    #     print("Calculating statistic\n");
-    #     system(@args);  # run statistic.pl
-    #     if ($display eq "1") {
-    #         open(my $in, "<", "$dest/${result_name}.stat") or warn "Could not open $dest/${result_name}.stat, $!\n";
-    #         while(my $line = <$in>) {
-    #             print($line);
-    #         }
-    #     }
-    # }
-    # elsif ($display eq "1") {
-    #     open(my $in, "<", "$dest/${result_name}.count") or warn "Could not open $dest/${result_name}.count, $!\n";
-    #     while(my $line = <$in>) {
-    #         print($line);
-    #     }
-    # }
-
-    # TODO: get statistic working
     if ($display eq "1") {
-        open(my $in, "<", "$dest/${result_name}.count") or warn "Could not open $dest/${result_name}.count, $!\n";
+        open(my $in, "<", "$dest/${result_name}_count.txt") or warn "Could not open $dest/${result_name}_count.txt, $!\n";
         while(my $line = <$in>) {
             print($line);
         }
     }
-    # TODO: cleanup?
+
+    if ($n lt "5" and $n gt "1") {
+        @args = ($^X, "$tool_ngram_script_dir/statistic.pl", "--ngram=$n", "--precision=$tool_ngram_precision");
+        if ($n eq "2") {push(@args, $tool_ngram_measure_2);}
+        elsif ($n eq "3") {push(@args, $tool_ngram_measure_3);}
+        elsif ($n eq "4") {push(@args, $tool_ngram_measure_4);}
+        push(@args, "$dest/${result_name}_stat.txt", "$dest/${result_name}_count.txt");
+
+        print("Calculating statistic\n");
+        system(@args);  # run statistic.pl
+
+        print("Display statistic (1/0): ");
+        $display = <STDIN>;
+        chomp($display);
+
+        if ($display eq "1") {
+            open(my $in, "<", "$dest/${result_name}_stat.txt") or warn "Could not open $dest/${result_name}_stat.txt, $!\n";
+            while(my $line = <$in>) {
+                print($line);
+            }
+        }
+    }
+
+    opendir(DH, $dest) or warn "opendir() failed: $!";
+    my @new_files = readdir(DH);
+    closedir(DH);
+    foreach my $file (@new_files) {
+        if (! ($file =~ /_count.txt$/) and ! ($file =~ /_stat.txt$/) ) {
+            unlink "$dest/$file" or warn "Could not unlink $file: $!";
+        }
+    }
 }
 
 sub run_keyword {
