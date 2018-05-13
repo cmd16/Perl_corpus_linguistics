@@ -498,11 +498,21 @@ sub run_concordance {
     my $query = <STDIN>;
     chomp($query);
 
+    my @queries;
+
+    @queries = split(" ", $query);
+
     if ($reg_or_txt eq "1") {
-        $query = quotemeta($query);  # escape special characters
+        foreach $query (@queries) {
+            $query = quotemeta($query);  # modify item in place
+        }
     }
 
-    my @queries = split(" ", $query);
+    print("$query\n");
+    foreach my $item (@queries) {
+        print("$item ");
+    }
+    print("\n");
 
     if ($tool_wordlist_regex_checkval eq "1") {
         print("using local regex $tool_wordlist_regex\n");
@@ -519,20 +529,24 @@ sub run_concordance {
 
     foreach my $filename (@filenames) {
         my $text = path("$filename")->slurp_utf8;
-        my @words = $splitter->words($text);
+        my @words = @{$splitter->words($text)};  # dereference the array
         for my $i (0..$#words) {
             my $match = 1;
             for my $x (0..$#queries) {
+                my $query = $queries[$x];
                 my $idx = $i+$x;
                 my $token = $words[$idx];
-                if (! search_token($token, $query, $exact_or_partial)) {
-                    print("$token not a match");
+                if (search_token($token, $query, $exact_or_partial) != 1) {
+                    # print("$token doesn't match $query\n");
                     $match = 0;
                     last;
                 }
             }
             if ($match) {
-                print(@words[$i-$tool_concordance_win_length..$i+$tool_concordance_win_length]);
+                for my $y ($i-$tool_concordance_win_length..$i+$tool_concordance_win_length) {
+                    print($words[$y]);
+                    print(" ");
+                }
                 print("\t$filename\n");
             }
         }
@@ -553,13 +567,14 @@ sub run_ngrams {
     closedir(DH);
     my $num_to_delete = @to_delete;
 
-    if ($num_to_delete > 0) {  # if there are files to delete (checking length)
+    if ($num_to_delete > 1) {  # if there are files to delete (checking length). "." is always included
         warn("Directory supplied ($dest) is not empty. Type '1' to continue anyway (deleting the files)");
         my $input = <STDIN>;
         chomp($input);
 
         if ($input eq "1") {
             foreach my $file ( @to_delete ) {
+                next if $file eq ".";
                 unlink "$dest/$file" or warn "Could not unlink $file: $!";
             }
         }
