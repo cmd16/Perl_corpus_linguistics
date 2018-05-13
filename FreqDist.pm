@@ -173,14 +173,6 @@ sub update {  # TODO: check declaration
 sub keyword_analysis {  # TODO: check declaration
     my ($self, $other, $p) = @_;
     my $crit;
-    # switch($p) {
-    #     case 0.05 { $crit = 3.84; }
-    #     case 0.01 { $crit = 6.63; }
-    #     case 0.001 { $crit = 10.83; }
-    #     case 0.0001 { $crit = 15.13; }
-    #     case 0 { $crit = 0; }
-    #     else { $crit = 6.63; }
-    # }
     if ($p == 0.05) { $crit = 3.84; }
     elsif ($p == 0.01) { $crit = 6.63; }
     elsif ($p == 0.001) { $crit = 10.83; }
@@ -195,12 +187,14 @@ sub keyword_analysis {  # TODO: check declaration
     my $types1 = $self->get_types();
     my $types2 = $other->get_types();
     scalar keys $self->{_hash}; # reset the internal iterator so a prior each() doesn't affect the loop
-    # print("hash\n");
-    # print Dumper($self->{_hash});
     while(my($token, $freq1) = each $self->{_hash}) {
         my $freq2 = $other->get_count($token);
         my $norm1 = $self->get_normalized_freq($token);
         my $norm2 = $freq2 == 0? 0 : $other->get_normalized_freq($token);
+
+        next if ($norm2 > $norm1);  # avoid double counting when going both ways
+        # Note: double counting will still occur when $norm2 == $norm1, but in that case the ll is 0 so we don't care
+
         my $tokens1 = $self->get_tokens();
         my $tokens2 = $other->get_tokens();
         my $num = ($freq1 + $freq2) / ($tokens1 + $tokens2);
@@ -214,15 +208,16 @@ sub keyword_analysis {  # TODO: check declaration
         else {
             $keyness = 2 * ($freq1 * log($freq1/$E1) + ($freq2 * log($freq2/$E2)));
         }
-        if ($keyness < $crit) {
-            next;
-        }
+
+        next if ($keyness < $crit);
+
         $keyword_hash{$token} = {'keyness'=> $keyness, 'freq1'=>$freq1, 'norm1'=>$norm1, 'freq2'=>$freq2, 'norm2'=>$norm2};
         print $keyword_hash{$token};
         # ({'keyness'=> $keyness, 'freq1'=>$freq1, 'norm1'=>$norm1, 'freq2'=>$freq2, 'norm2'=>$norm2}, ($types1, $tokens1), ($types2, $tokens));
         print Dumper(\%keyword_hash);
     }
     $self->{_keyword_dict} = \%keyword_hash;  # TODO: deal with types and tokens
+    return \%keyword_hash;  # return hash in case we want to use it later
 }
 
 sub print_keywords {
