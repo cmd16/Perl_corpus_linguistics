@@ -1,6 +1,5 @@
 use strict;
 use warnings;
-# use diagnostics;
 use Lingua::EN::Segmenter::TextTiling qw(segments);
 use FreqDist;
 use Time::HiRes qw(time);
@@ -27,7 +26,7 @@ my $tool_concordance_case = "0";  # same as global settings
 my $tool_concordance_win_length = "7";
 
 my $tool_ngram_case = "0";
-my $tool_ngram_regex_filename = "";
+my $tool_ngram_regex_filename = "valid_tokens.txt";
 my $tool_ngram_nontoken_checkval = "0";
 my $tool_ngram_nontoken_filename = "";
 my $tool_ngram_stop_checkval = "0";
