@@ -2,9 +2,6 @@
 use strict;
 use warnings;
 package FreqDist;
-use Data::Dumper qw(Dumper);
-# use diagnostics;
-# use Switch;
 use lib '/Users/cat/perl5/lib/perl5';
 
 sub new {
@@ -52,29 +49,19 @@ sub get_count {
     if ($count) {
         return $count;
     }
-    else {
-        return 0;
-    }
+    return 0;
 }
 
 sub get_prob_token {
     my ($self, $token) = @_;
-    if ($self->get_tokens() == 0) {
-        return 0;
-    }
-    else {
-        return $self->get_count($token) / $self->get_tokens();
-    }
+    if ($self->get_tokens() == 0) { return 0; }
+    return $self->get_count($token) / $self->get_tokens();
 }
 
 sub get_prob_type {
     my ($self, $type) = @_;
-    if ($self->get_types() == 0) {
-        return 0;
-    }
-    else {
-        return 1 / $self->get_types();
-    }
+    if ($self->get_types() == 0) { return 0; }
+    return 1 / $self->get_types();
 }
 
 sub get_normalized_freq {
@@ -136,7 +123,8 @@ sub out_to_txt {
     printf $out "#Word tokens: %d\n", $self->{_tokens};
     printf $out "#Search results: 0\n";
     my $rank = 1;
-    foreach my $key (sort { $self->{_hash}{$b} <=> $self->{_hash}{$a} } keys $self->{_hash}) {
+    foreach my $key (sort { $self->{_hash}{$b} <=> $self->{_hash}{$a}
+                            or $a cmp $b } keys $self->{_hash}) {
         printf $out "%d\t%d\t%s\n", $rank, $self->{_hash}{$key}, $key;
         $rank += 1;
     }
@@ -170,71 +158,4 @@ sub update {  # TODO: check declaration
     }
 }
 
-sub keyword_analysis {  # TODO: check declaration
-    my ($self, $other, $p) = @_;
-    my $crit;
-    if ($p == 0.05) { $crit = 3.84; }
-    elsif ($p == 0.01) { $crit = 6.63; }
-    elsif ($p == 0.001) { $crit = 10.83; }
-    elsif ($p == 0.0001) { $crit = 15.13; }
-    elsif ($p == 0){ $crit = 0; }
-    else {
-        warn("Invalid p value. Setting p value to .01\n");
-        $crit = 6.63;
-    }
-    $crit = 6.63;  # TODO: change later
-    my %keyword_hash;
-    my $types1 = $self->get_types();
-    my $types2 = $other->get_types();
-    scalar keys $self->{_hash}; # reset the internal iterator so a prior each() doesn't affect the loop
-    while(my($token, $freq1) = each $self->{_hash}) {
-        my $freq2 = $other->get_count($token);
-        my $norm1 = $self->get_normalized_freq($token);
-        my $norm2 = $freq2 == 0? 0 : $other->get_normalized_freq($token);
-
-        next if ($norm2 > $norm1);  # avoid double counting when going both ways
-        # Note: double counting will still occur when $norm2 == $norm1, but in that case the ll is 0 so we don't care
-
-        my $tokens1 = $self->get_tokens();
-        my $tokens2 = $other->get_tokens();
-        my $num = ($freq1 + $freq2) / ($tokens1 + $tokens2);
-        my $E1 = $tokens1 * $num;
-        my $E2 = $tokens2 * $num;
-
-        my $keyness;
-        if ($freq2 == 0 or $E2 == 0) {
-            $keyness = 2 * ($freq1 * log($freq1/$E1));
-        }
-        else {
-            $keyness = 2 * ($freq1 * log($freq1/$E1) + ($freq2 * log($freq2/$E2)));
-        }
-
-        next if ($keyness < $crit);
-
-        $keyword_hash{$token} = {'keyness'=> $keyness, 'freq1'=>$freq1, 'norm1'=>$norm1, 'freq2'=>$freq2, 'norm2'=>$norm2};
-        print $keyword_hash{$token};
-        # ({'keyness'=> $keyness, 'freq1'=>$freq1, 'norm1'=>$norm1, 'freq2'=>$freq2, 'norm2'=>$norm2}, ($types1, $tokens1), ($types2, $tokens));
-        print Dumper(\%keyword_hash);
-    }
-    $self->{_keyword_dict} = \%keyword_hash;  # TODO: deal with types and tokens
-    return \%keyword_hash;  # return hash in case we want to use it later
-}
-
-sub print_keywords {
-    my ($self, $filename) = @_;  # @indexes is a list of indexes of keyword hashes
-    open(my $out, ">", $filename) or warn("Couldn't open $filename, $!");
-    # my %keyword_hash = {$self->{_keyword_dict}};
-    # print Dumper($self->{_keyword_dict});
-    # print Dumper(\%keyword_hash);
-    # printf("%d\t%d", $self->get_types(), $self->get_tokens());
-    printf($out "# Corpus 1:\t%d\t%d\n", $self->get_types(), $self->get_tokens());  # TODO: deal with types and tokens
-    printf($out "# Corpus 2:\t%d\t%d\n", 0, 0);  # TODO: deal with types and tokens
-    printf($out "# %s\t%s\t%s\t%s\t%s\t%s\n", "word", "keyness", "freq1",
-    "norm1", "freq2", "norm2");
-    foreach my $key (sort { $self->{_keyword_dict}{$a}{'keyness'} <=> $self->{_keyword_dict}{$b}{'keyness'} } keys $self->{_keyword_dict}) {
-        printf($out "%s\t%f\t%d\t%f\t%d\t%f\n", $key, $self->{_keyword_dict}{$key}{'keyness'}, $self->{_keyword_dict}{$key}{'freq1'},
-        $self->{_keyword_dict}{$key}{'norm1'}, $self->{_keyword_dict}{$key}{'freq2'}, $self->{_keyword_dict}{$key}{'norm2'});
-    }
-    close($out);
-}
 1;

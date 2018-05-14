@@ -2,6 +2,7 @@ use strict;
 use warnings;
 use Lingua::EN::Segmenter::TextTiling qw(segments);
 use FreqDist;
+use Keyword;
 use Time::HiRes qw(time);
 use Path::Tiny qw(path);
 use File::Basename;
@@ -53,11 +54,12 @@ my $wordlist_tokens = "0";
 my $wordlist_search_num = "0";
 my $wordlist_freqdist = new FreqDist;
 my $keyword_freqdist = new FreqDist;
+my $keyword_obj = new Keyword;
 
 my @filenames = ();
 
 my $splitter = new Lingua::EN::Splitter;
-$splitter->set_non_word_regexp("$global_regex");  # todo: modify to use definition
+$splitter->set_non_word_regexp("$global_regex");
 
 sub set_global_settings {
     print("Show full pathname? (1/0). Currently $show_full_pathname: ");
@@ -689,7 +691,10 @@ sub run_keyword {
     }
 
     print("Calculating keyword analysis\n");
-    $wordlist_freqdist->keyword_analysis($keyword_freqdist, int($tool_keyword_p));
+    $keyword_obj->set_freqdist1($wordlist_freqdist);
+    $keyword_obj->set_freqdist2($keyword_freqdist);
+
+    $keyword_obj->keyword_analysis($tool_keyword_p);
 
     my $done = 0;
     while (! $done) {  # loop so you don't lose the whole thing because you mistyped
@@ -699,13 +704,13 @@ sub run_keyword {
 
         # TODO: get printing to STDOUT to work
         if ($result_name eq "0") {
-            $wordlist_freqdist->print_keywords(*STDOUT);
+            $keyword_obj->print_keywords(*STDOUT);
         }
         elsif ($result_name eq "-1") {
             $done = 1;
         }
         else {
-            $wordlist_freqdist->print_keywords($result_name);
+            $keyword_obj->print_keywords($result_name);
         }
     }
 }
