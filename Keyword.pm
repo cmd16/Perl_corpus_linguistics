@@ -60,6 +60,19 @@ sub get_freqdist2 {
     return $self->{_freqdist2};
 }
 
+sub swap_freqdists {
+    my ($self) = @_;
+    my $new_1 = $self->{_freqdist2};
+    my $new_2 = $self->{_freqdist1};
+    $self->set_freqdist1($new_1);
+    $self->set_freqdist2($new_2);
+}
+
+sub get_tokens {
+    my ($self) = @_;
+    return keys $self->{_keyword_dict};
+}
+
 sub get_token_stats {
     my ($self, $token) = @_;
     if ($token eq "") {
@@ -89,7 +102,6 @@ sub keyword_analysis {
         warn("Invalid p value. Setting p value to .01\n");
         $crit = 6.63;
     }
-    $crit = 6.63;  # TODO: change later
     my %keyword_hash;
     my $types1 = $self->{_freqdist1}->get_types();
     my $types2 = $self->{_freqdist2}->get_types();
@@ -125,14 +137,27 @@ sub keyword_analysis {
         $keyword_hash{$token} = {'keyness'=> $keyness, 'freq1'=>$freq1, 'norm1'=>$norm1, 'freq2'=>$freq2, 'norm2'=>$norm2};
     }
     $self->{_keyword_dict} = \%keyword_hash;  # TODO: deal with types and tokens
-    print(Dumper($self->{_keyword_dict}));
+    # print(Dumper($self->{_keyword_dict}));
     return \%keyword_hash;  # return hash in case we want to use it later
 }
 
-
 sub print_keywords {
     my ($self, $filename) = @_;
-    open(my $out, ">", $filename) or warn("Couldn't open $filename, $!");
+    my $out;
+    my $success;
+
+    if ($filename eq "STDOUT") {
+        $success = 0;  # did not open a file
+        $out = *STDOUT;
+    }
+    else {
+        $success = open($out, ">", $filename);
+        if (! $success) {
+            warn "Couldn't open $filename, $!\n";
+            return -1;
+        }
+    }
+
     printf($out "# Corpus 1:\t%d\t%d\n", $self->{_freqdist1}->get_types(), $self->{_freqdist1}->get_tokens());
     printf($out "# Corpus 2:\t%d\t%d\n", $self->{_freqdist2}->get_types(), $self->{_freqdist2}->get_tokens());
     printf($out "# %s\t%s\t%s\t%s\t%s\t%s\n", "word", "keyness", "freq1",
@@ -142,7 +167,7 @@ sub print_keywords {
         printf($out "%s\t%f\t%d\t%f\t%d\t%f\n", $key, $self->{_keyword_dict}{$key}{'keyness'}, $self->{_keyword_dict}{$key}{'freq1'},
         $self->{_keyword_dict}{$key}{'norm1'}, $self->{_keyword_dict}{$key}{'freq2'}, $self->{_keyword_dict}{$key}{'norm2'});
     }
-    close($out);
+    close($out) if $success;  # don't close STDOUT
 }
 
 1;

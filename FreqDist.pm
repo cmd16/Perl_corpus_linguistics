@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 package FreqDist;
-use lib '/Users/cat/perl5/lib/perl5';
+# use lib '/Users/cat/perl5/lib/perl5';
 
 sub new {
     my $class = shift;
@@ -118,7 +118,21 @@ sub clear_hash {  # TODO: fix this
 
 sub out_to_txt {
     my ($self, $filename) = @_;
-    open(my $out, ">", $filename) or die "Couldn't open $filename, $!";
+    my $out;
+    my $success;
+
+    if ($filename eq "STDOUT") {
+        $success = 0;  # did not open a file
+        $out = *STDOUT;
+    }
+    else {
+        $success = open($out, ">", $filename);
+        if (! $success) {
+            warn "Couldn't open $filename, $!\n";
+            return -1;
+        }
+    }
+
     printf $out "#Word types: %d\n", $self->{_types};
     printf $out "#Word tokens: %d\n", $self->{_tokens};
     printf $out "#Search results: 0\n";
@@ -128,7 +142,7 @@ sub out_to_txt {
         printf $out "%d\t%d\t%s\n", $rank, $self->{_hash}{$key}, $key;
         $rank += 1;
     }
-    close $out;
+    close($out) if $success;  # don't close STDOUT
 }
 
 sub open_from_txt {
@@ -136,7 +150,7 @@ sub open_from_txt {
     # clear out the old values
     $self->clear_hash();
     # read in the new values
-    open(my $in, "<", $filename) or die "Couldn't open $filename, $!";
+    open(my $in, "<", $filename) || warn "Couldn't open $filename, $!";
     while(my $line = <$in>) {
         next if $. < 2;  # skip first 2 lines which have types and tokens (https://stackoverflow.com/questions/14393295/best-way-to-skip-a-header-when-reading-in-from-a-text-file-in-perl)
         chomp($line);  # get rid of newline at end
