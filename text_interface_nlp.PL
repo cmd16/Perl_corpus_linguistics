@@ -56,7 +56,7 @@ my $wordlist_freqdist = new FreqDist;
 my $keyword_freqdist = new FreqDist;
 my $keyword_obj = new Keyword;
 
-my @filenames = ();
+my @wordlist_files = ();
 
 my $splitter = new Lingua::EN::Splitter;
 $splitter->set_non_word_regexp("$global_regex");
@@ -323,7 +323,7 @@ sub set_tool_settings_keyword {
     chomp($input);
     if ($input ne  "") {$tool_keyword_reference_checkval = $input};
 
-    print("Keyword files are @tool_keyword_files. 1 to add files, 2 to add directory, 3 to remove files\n");
+    print("Keyword files are @tool_keyword_files. 1 to add files, 2 to add directory, 3 to remove files, 4 to swap wordlist and keyword files\n");
     $input = <STDIN>;
     chomp($input);
 
@@ -345,7 +345,7 @@ sub set_tool_settings_keyword {
         my $dirname = <STDIN>;
         chomp($dirname);
         if (-d $dirname) {
-            opendir(DIR, $dirname) or warn "Could not open $dirname, $!\n";
+            opendir(DIR, $dirname) || warn "Could not open $dirname, $!\n";
             while (my $filename = readdir(DIR)) {
                 $filename = "$dirname/$filename";
                 if (-f $filename) {
@@ -384,12 +384,28 @@ sub set_tool_settings_keyword {
             }
         }
     }
+    elsif ($input eq "4") {
+        my @temp = @tool_keyword_files;
+        my $temp_check = $tool_keyword_reference_checkval;
+
+        @tool_keyword_files = @wordlist_files;
+        $tool_keyword_reference_checkval = $tool_wordlist_corpus_checkval;
+
+        @wordlist_files = @temp;
+        $tool_wordlist_corpus_checkval = $temp_check;
+
+        $keyword_obj->swap_freqdists();
+        $wordlist_freqdist = $keyword_obj->get_freqdist1();
+        $keyword_freqdist = $keyword_obj->get_freqdist2();
+    }
 
     print("Save keyword FreqDist to a file after creating it (1/0). Currently $tool_keyword_save_freqdist: ");
     $input = <STDIN>;
     chomp($input);
 
     if ($input eq "1") {
+        $tool_keyword_save_freqdist = "1";
+
         print("Filename to store keyword FreqDist in. Currently $keyword_outfilename: ");
         $input = <STDIN>;
         chomp($input);
@@ -425,12 +441,12 @@ sub run_wordlist {
                 print("using global regex $global_regex\n");
                 $splitter->set_non_word_regexp("$global_regex");
             }
-            foreach my $filename (@filenames) {
+            foreach my $filename (@wordlist_files) {
                 $wordlist_freqdist->update(tokenize_file($filename, $splitter));  # TODO: add case sensitive
             }
         }
         else {
-            foreach my $filename (@filenames) {
+            foreach my $filename (@wordlist_files) {
                 my $current_freq_dist = new FreqDist();
                 $current_freq_dist->open_from_txt($filename);
                 $wordlist_freqdist->update($current_freq_dist);
@@ -445,7 +461,7 @@ sub run_wordlist {
         my $answer = <STDIN>;
         chomp($answer);
         if ($answer eq "1") {
-            open(my $in, "<", $save_name) or warn "Could not open $save_name, $!\n";
+            open(my $in, "<", $save_name) || warn "Could not open $save_name, $!\n";
             while(my $line = <$in>) {
                 print($line);
             }
@@ -528,7 +544,7 @@ sub run_concordance {
     my $exact_or_partial = <STDIN>;
     chomp($exact_or_partial);
 
-    foreach my $filename (@filenames) {
+    foreach my $filename (@wordlist_files) {
         my $text = path("$filename")->slurp_utf8;
         my @words = @{$splitter->words($text)};  # dereference the array
         for my $i (0..$#words) {
@@ -563,7 +579,7 @@ sub run_ngrams {
         return -1;
     }
 
-    opendir(DH, $dest) or warn "opendir() failed: $!";
+    opendir(DH, $dest) || warn "opendir() failed: $!";
     my @to_delete = readdir(DH);
     closedir(DH);
     my $num_to_delete = @to_delete;
@@ -576,7 +592,7 @@ sub run_ngrams {
         if ($input eq "1") {
             foreach my $file ( @to_delete ) {
                 next if $file eq ".";
-                unlink "$dest/$file" or warn "Could not unlink $file: $!";
+                unlink "$dest/$file" || warn "Could not unlink $file: $!";
             }
         }
         else {
@@ -595,10 +611,10 @@ sub run_ngrams {
     if (($tool_ngram_case eq "0" and $global_case_sensitive eq "0")
     or $tool_ngram_case eq "2") {
         print("Creating lowercase files to be case insensitive\n");
-        foreach my $filename (@filenames) {
+        foreach my $filename (@wordlist_files) {
             my $basename = basename($filename);
-            open(my $in, "<", $filename) or warn("Couldn't open $filename, $!");
-            open(my $out, ">", "$dest/${basename}_lower.txt") or warn("Couldn't open $dest/${basename}_lower.txt, $!");
+            open(my $in, "<", $filename) || warn("Couldn't open $filename, $!");
+            open(my $out, ">", "$dest/${basename}_lower.txt") || warn("Couldn't open $dest/${basename}_lower.txt, $!");
             while(my $line = <$in>) {
                 print $out lc($line);
             }
@@ -608,8 +624,8 @@ sub run_ngrams {
     }
     else {
         print("Copying files for analysis");
-        foreach my $filename (@filenames) {
-            copy($filename, $dest) or warn("Failed to copy $filename to $dest");
+        foreach my $filename (@wordlist_files) {
+            copy($filename, $dest) || warn("Failed to copy $filename to $dest");
         }
     }
 
@@ -630,7 +646,7 @@ sub run_ngrams {
     chomp($display);
 
     if ($display eq "1") {
-        open(my $in, "<", "$dest/${result_name}_count.txt") or warn "Could not open $dest/${result_name}_count.txt, $!\n";
+        open(my $in, "<", "$dest/${result_name}_count.txt") || warn "Could not open $dest/${result_name}_count.txt, $!\n";
         while(my $line = <$in>) {
             print($line);
         }
@@ -651,24 +667,25 @@ sub run_ngrams {
         chomp($display);
 
         if ($display eq "1") {
-            open(my $in, "<", "$dest/${result_name}_stat.txt") or warn "Could not open $dest/${result_name}_stat.txt, $!\n";
+            open(my $in, "<", "$dest/${result_name}_stat.txt") || warn "Could not open $dest/${result_name}_stat.txt, $!\n";
             while(my $line = <$in>) {
                 print($line);
             }
         }
     }
 
-    opendir(DH, $dest) or warn "opendir() failed: $!";
+    opendir(DH, $dest) || warn "opendir() failed: $!";
     my @new_files = readdir(DH);
     closedir(DH);
     foreach my $file (@new_files) {
         if (! ($file =~ /_count.txt$/) and ! ($file =~ /_stat.txt$/) ) {
-            unlink "$dest/$file" or warn "Could not unlink $file: $!";
+            unlink "$dest/$file" || warn "Could not unlink $file: $!";
         }
     }
 }
 
 sub run_keyword {
+    $wordlist_freqdist->out_to_txt("wordlist_freqdist.txt");
     print("Creating FreqDist for keyword files\n");
     $keyword_freqdist = new FreqDist;
 
@@ -704,7 +721,7 @@ sub run_keyword {
 
         # TODO: get printing to STDOUT to work
         if ($result_name eq "0") {
-            $keyword_obj->print_keywords(*STDOUT);
+            $keyword_obj->print_keywords("STDOUT");
         }
         elsif ($result_name eq "-1") {
             $done = 1;
@@ -779,7 +796,7 @@ sub main {
                 my $filename = <STDIN>;
                 chomp($filename);
                 if (-f $filename) {
-                    push(@filenames, $filename);
+                    push(@wordlist_files, $filename);
                 }
                 else {
                     warn("$filename could not be found.");
@@ -790,12 +807,12 @@ sub main {
                 my $dirname = <STDIN>;
                 chomp($dirname);
                 if (-d $dirname) {
-                    opendir(DIR, $dirname) or warn "Could not open $dirname, $!\n";
+                    opendir(DIR, $dirname) || warn "Could not open $dirname, $!\n";
                     while (my $filename = readdir(DIR)) {
                         $filename = "$dirname/$filename";
                         if (-f $filename) {
                             if ($filename =~ /$global_default_extension$/)  {
-                                push(@filenames, $filename);
+                                push(@wordlist_files, $filename);
                             }
                             else {
                                 warn("Skipping $filename because it doesn't match the extension");
@@ -824,14 +841,14 @@ sub main {
                 chomp($suffix);
 
                 if (-f $main_filename) {
-                    open(my $in, "<$main_filename") or warn "Could not open $main_filename, $!\n";
+                    open(my $in, "<$main_filename") || warn "Could not open $main_filename, $!\n";
                     my $freq_dist_obj = new FreqDist;  # TODO update definition
                     while(my $line = <$in>) {
                         chomp($line);
                         if ($line eq "") {next;}
                         my $filename = "$prefix$line$suffix";
                         if (-f $filename) {
-                            push(@filenames, $filename);
+                            push(@wordlist_files, $filename);
                         }
                         else {
                             warn "$filename could not be found.";
@@ -845,30 +862,30 @@ sub main {
             }
         }
         elsif ($choice eq "4") {
-            if ($#filenames < 1) {
-                print("No files to remove.\n");
-                next;
-            }
-            for my $i (0 .. $#filenames) {
-                my $filename = $filenames[$i];
+            # if ($#wordlist_files < 1) {
+            #     print("No files to remove.\n");
+            #     next;
+            # }
+            for my $i (0 .. $#wordlist_files) {
+                my $filename = $wordlist_files[$i];
                 print("$i $filename\n");
             }
             print("Indexes of files to remove separated by spaces or 'all' to remove all: ");
             my $input = <STDIN>;
             chomp($input);
             if ($input eq "all") {
-                @filenames = ();
+                @wordlist_files = ();
             }
             else {
                 my @indexes = split(" ", $input);
                 foreach my $del_idx (@indexes) {
                     $del_idx = int($del_idx);
-                    splice(@filenames, $del_idx, 1);
+                    splice(@wordlist_files, $del_idx, 1);
                 }
             }
         }
         elsif ($choice eq "5") {
-            for my $filename (@filenames) {
+            for my $filename (@wordlist_files) {
                 print("$filename\n");
             }
         }
