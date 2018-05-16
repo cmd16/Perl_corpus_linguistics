@@ -2,6 +2,7 @@
 use strict;
 use warnings;
 package FreqDist;
+use Carp;
 # use lib '/Users/cat/perl5/lib/perl5';
 
 sub new {
@@ -128,7 +129,7 @@ sub out_to_txt {
     else {
         $success = open($out, ">", $filename);
         if (! $success) {
-            warn "Couldn't open $filename, $!\n";
+            carp "Couldn't open $filename, $!\n";
             return -1;
         }
     }
@@ -150,7 +151,7 @@ sub open_from_txt {
     # clear out the old values
     $self->clear_hash();
     # read in the new values
-    open(my $in, "<", $filename) || warn "Couldn't open $filename, $!";
+    open(my $in, "<", $filename) || carp "Couldn't open $filename, $!";
     while(my $line = <$in>) {
         next if $. < 2;  # skip first 2 lines which have types and tokens (https://stackoverflow.com/questions/14393295/best-way-to-skip-a-header-when-reading-in-from-a-text-file-in-perl)
         chomp($line);  # get rid of newline at end

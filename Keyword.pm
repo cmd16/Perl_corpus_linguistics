@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 package Keyword;
-use FreqDist;
+use FreqDist;  # this uses Carp
 use Data::Dumper;
 
 sub new {
@@ -149,7 +149,7 @@ sub print_keywords {
     else {
         $success = open($out, ">", $filename);
         if (! $success) {
-            warn "Couldn't open $filename, $!\n";
+            carp "Couldn't open $filename, $!\n";
             return -1;
         }
     }
