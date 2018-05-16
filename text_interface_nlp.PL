@@ -441,20 +441,22 @@ sub run_wordlist {
                 $wordlist_freqdist->update($current_freq_dist);
             }
         }
-        print("Name of file to save in: ");
+        print("Name of file to save in (or STDOUT to output to screen): ");
         my $save_name = <STDIN>;
         chomp($save_name);
         $wordlist_freqdist->out_to_txt($save_name);
 
-        print("Display results (1/0): ");
-        my $answer = <STDIN>;
-        chomp($answer);
-        if ($answer eq "1") {
-            open(my $in, "<", $save_name) || warn "Could not open $save_name, $!\n";
-            while(my $line = <$in>) {
-                print($line);
+        unless ($save_name eq "STDOUT") {
+            print("Display results (1/0): ");
+            my $answer = <STDIN>;
+            chomp($answer);
+            if ($answer eq "1") {
+                open(my $in, "<", $save_name) || warn "Could not open $save_name, $!\n";
+                while(my $line = <$in>) {
+                    print($line);
+                }
+                close $in;
             }
-            close $in;
         }
     }
     elsif ($selection eq "2") {  # TODO: get search to work
@@ -701,15 +703,11 @@ sub run_keyword {
 
     my $done = 0;
     while (! $done) {  # loop so you don't lose the whole thing because you mistyped
-        print("Filename (or 0 to print to screen, or -1 to exit): ");
+        print("Filename (or STDOUT to print to screen, or -1 to exit): ");
         my $result_name = <STDIN>;
         chomp($result_name);
 
-        # TODO: get printing to STDOUT to work
-        if ($result_name eq "0") {
-            $keyword_obj->print_keywords("STDOUT");
-        }
-        elsif ($result_name eq "-1") {
+        if ($result_name eq "-1") {
             $done = 1;
         }
         else {
