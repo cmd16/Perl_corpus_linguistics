@@ -6,9 +6,9 @@ use Keyword;
 use Time::HiRes qw(time);
 use Path::Tiny qw(path);
 use File::Basename;
+use File::Copy;
 require "./Tokenize.PL";
 
-my $show_full_pathname = "1";
 my $global_default_extension = ".txt";
 my $global_save_intermediate = "0";
 my $global_save_intermediate_dir = "";
@@ -17,7 +17,6 @@ my $global_regex = "[^a-zA-Z]+";
 my $global_case_sensitive = "0";  # case insensitive
 my $global_stop_words = ();
 
-my $tool_wordlist_case = "0";  # in this case means (match whatever global is)
 my $tool_wordlist_regex_checkval = "0";  # match whatever global is
 my $tool_wordlist_regex = "";
 my $tool_wordlist_corpus_checkval = "0";  # raw files (1 means wordlists)
@@ -62,13 +61,9 @@ my $splitter = new Lingua::EN::Splitter;
 $splitter->set_non_word_regexp("$global_regex");
 
 sub set_global_settings {
-    print("Show full pathname? (1/0). Currently $show_full_pathname: ");
-    my $input = <STDIN>;
-    chomp($input);
-    if ($input ne  "") {$show_full_pathname = int($input)};
 
     print("Default extension to use with openDir. Currently $global_default_extension: ");
-    $input = <STDIN>;
+    my $input = <STDIN>;
     chomp($input);
     if ($input ne  "") {$global_default_extension = $input};
 
@@ -88,27 +83,21 @@ sub set_global_settings {
 }
 
 sub view_global_settings {
-    print("Show full pathname: $show_full_pathname\n");
     print("Default extension to use with openDir: $global_default_extension\n");
     print("Global regex to define token: $global_regex\n");
     print("Global case sensitive: $global_case_sensitive\n");
 }
 
 sub set_tool_settings_wordlist {
-    print("Case sensitive: same as global (currently $global_case_sensitive) (0), sensitive (1), or insensitive (2). Currently $tool_wordlist_case: ");
-    my $input = <STDIN>;
-    chomp($input);
-    if ($input ne  "") {$tool_wordlist_case = int($input)};
-
     print("Use global regex for nontoken definition (currently $global_regex) (0) or write your own (1).
     Currently $tool_wordlist_regex_checkval: ");
-    $input = <STDIN>;
+    my $input = <STDIN>;
     chomp($input);
     # TODO: why isn't this working?
     if ($input ne  "") {$tool_wordlist_regex_checkval = $input};
 
     if ($tool_wordlist_regex_checkval eq "1") {
-        print("Set wordlist regex for nontoken (simplest way is [^token]+). Currently $tool_wordlist_regex: ");
+        print("Set wordlist regex for nontoken (simplest way is [^token]+ or !token). Currently $tool_wordlist_regex: ");
         $input = <STDIN>;
         chomp($input);
         if ($input ne  "") {$tool_wordlist_regex = $input};
@@ -122,7 +111,6 @@ sub set_tool_settings_wordlist {
 }
 
 sub view_tool_settings_wordlist {
-    print("Case sensitive: $tool_wordlist_case\n");
     print("Use global regex: $tool_wordlist_regex_checkval\n");
     if (! $tool_wordlist_regex_checkval) {
         print("Wordlist regex: $tool_wordlist_regex\n");
@@ -157,7 +145,7 @@ sub set_tool_settings_ngram {
     print("Filename containing token regexes for ngrams. Currently $tool_ngram_regex_filename: ");
     $input = <STDIN>;
     chomp($input);
-    if (-f $input) {
+    if ($input ne "" and -f $input) {
         $tool_ngram_regex_filename = $input;
     }
     else {
@@ -442,7 +430,8 @@ sub run_wordlist {
                 $splitter->set_non_word_regexp("$global_regex");
             }
             foreach my $filename (@wordlist_files) {
-                $wordlist_freqdist->update(tokenize_file($filename, $splitter));  # TODO: add case sensitive
+                my $case = $global_case_sensitive eq "1"? 1 : 0;  # TODO: more elegeant solution
+                $wordlist_freqdist->update(tokenize_file($filename, $splitter, $case));
             }
         }
         else {
@@ -525,12 +514,6 @@ sub run_concordance {
         }
     }
 
-    print("$query\n");
-    foreach my $item (@queries) {
-        print("$item ");
-    }
-    print("\n");
-
     if ($tool_wordlist_regex_checkval eq "1") {
         print("using local regex $tool_wordlist_regex\n");
         $splitter->set_non_word_regexp("$tool_wordlist_regex");
@@ -553,15 +536,18 @@ sub run_concordance {
                 my $query = $queries[$x];
                 my $idx = $i+$x;
                 my $token = $words[$idx];
+                if ( ($tool_concordance_case eq "0" and $global_case_sensitive eq "0")
+                    or ($tool_concordance_case eq "2") ) { $token = lc $token; }
                 if (search_token($token, $query, $exact_or_partial) != 1) {
-                    # print("$token doesn't match $query\n");
                     $match = 0;
                     last;
                 }
             }
             if ($match) {
                 for my $y ($i-$tool_concordance_win_length..$i+$tool_concordance_win_length) {
+                    if ($y == $i) { print "<"; }  # delineate the beginning of the query
                     print($words[$y]);
+                    if ($y == $i + $#queries) { print ">"; }  # delineate the end of the query
                     print(" ");
                 }
                 print("\t$filename\n");
@@ -596,7 +582,7 @@ sub run_ngrams {
             }
         }
         else {
-            return -2;  # user error
+            return -2;  # user chose not to continue
         }
     }
 
@@ -623,7 +609,7 @@ sub run_ngrams {
         }
     }
     else {
-        print("Copying files for analysis");
+        print("Copying files for analysis\n");
         foreach my $filename (@wordlist_files) {
             copy($filename, $dest) || warn("Failed to copy $filename to $dest");
         }
@@ -698,7 +684,7 @@ sub run_keyword {
     }
     else {
         foreach my $filename (@tool_keyword_files) {
-            my $current_freq_dist = tokenize_file($filename, $splitter);
+            my $current_freq_dist = tokenize_file($filename, $splitter, $global_case_sensitive);
             $keyword_freqdist->update($current_freq_dist);
         }
     }
@@ -862,10 +848,6 @@ sub main {
             }
         }
         elsif ($choice eq "4") {
-            # if ($#wordlist_files < 1) {
-            #     print("No files to remove.\n");
-            #     next;
-            # }
             for my $i (0 .. $#wordlist_files) {
                 my $filename = $wordlist_files[$i];
                 print("$i $filename\n");
