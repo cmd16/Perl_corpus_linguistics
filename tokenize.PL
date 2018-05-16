@@ -153,6 +153,8 @@ sub find_prototypical {
         $i += 1;
     }
     close $out;
+
+    return 1;
 }
 
-return 1;
+1;

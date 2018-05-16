@@ -76,6 +76,7 @@ sub add_token {
     $self->{_hash}{$token} += 1;
     $self->{_tokens} += 1;
     $self->{_types} = scalar keys %{$self->{_hash}};
+    return $self;
 }
 
 sub remove_type {
@@ -84,6 +85,7 @@ sub remove_type {
     delete $self->{_hash}{$type};
     $self->{_tokens} -= $tokens;
     $self->{_types} -= 1;
+    return $self;
 }
 
 sub add_token_freq {
@@ -93,6 +95,7 @@ sub add_token_freq {
         $self->{_tokens} += $freq;
         $self->{_types} = keys %{$self->{_hash}};
     }
+    return $self;
 }
 
 sub get_max {
@@ -115,6 +118,7 @@ sub clear_hash {  # TODO: fix this
     $self->{_types} = 0;
     $self->{_tokens} = 0;
     $self->{_keyword_dict} = {};
+    return $self;
 }
 
 sub out_to_txt {
@@ -144,6 +148,7 @@ sub out_to_txt {
         $rank += 1;
     }
     close($out) if $success;  # don't close STDOUT
+    return $self;
 }
 
 sub open_from_txt {
@@ -163,6 +168,7 @@ sub open_from_txt {
         $self->add_token_freq($word_and_freq[2], $freq);
     }
     close $in;
+    return $self;
 }
 
 sub update {  # TODO: check declaration
@@ -171,6 +177,7 @@ sub update {  # TODO: check declaration
     while(my($token, $freq) = each %{$other_hash}) {
         $self->add_token_freq($token, $freq);
     }
+    return $self;
 }
 
 1;

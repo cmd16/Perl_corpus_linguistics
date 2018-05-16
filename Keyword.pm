@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 package Keyword;
-use FreqDist;  # this uses Carp
+use FreqDist;
 use Carp;
 use Data::Dumper;
 
@@ -29,6 +29,7 @@ sub new {
 sub set_name1 {
     my ($self, $name1) = @_;  # TODO: type checking in case user gives non-string?
     $self->{_name1} = $name1;
+    return $self;
 }
 
 sub get_name1 {
@@ -39,11 +40,13 @@ sub get_name1 {
 sub set_name2 {
     my ($self, $name2) = @_;  # TODO: type checking in case user gives non-string?
     $self->{_name2} = $name2;
+    return $self;
 }
 
 sub set_freqdist1 {
     my ($self, $freqdist1) = @_;
     $self->{_freqdist1} = $freqdist1;
+    return $self;
 }
 
 sub get_freqdist1 {
@@ -54,6 +57,7 @@ sub get_freqdist1 {
 sub set_freqdist2 {
     my ($self, $freqdist2) = @_;
     $self->{_freqdist2} = $freqdist2;
+    return $self;
 }
 
 sub get_freqdist2 {
@@ -67,6 +71,7 @@ sub swap_freqdists {
     my $new_2 = $self->{_freqdist1};
     $self->set_freqdist1($new_1);
     $self->set_freqdist2($new_2);
+    return $self;
 }
 
 sub get_tokens {
@@ -103,9 +108,6 @@ sub keyword_analysis {
     my $types1 = $self->{_freqdist1}->get_types();
     my $types2 = $self->{_freqdist2}->get_types();
 
-    # printf("# Corpus 1:\t%d\t%d\n", $self->{_freqdist1}->get_types(), $self->{_freqdist1}->get_tokens());
-    # printf("# Corpus 2:\t%d\t%d\n", $self->{_freqdist2}->get_types(), $self->{_freqdist2}->get_tokens());
-
     scalar keys $self->{_keyword_dict}; # reset the internal iterator so a prior each() doesn't affect the loop
     while(my($token, $freq1) = each $self->{_freqdist1}->get_hash()) {
         my $freq2 = $self->{_freqdist2}->get_count($token);
@@ -134,7 +136,6 @@ sub keyword_analysis {
         $keyword_hash{$token} = {'keyness'=> $keyness, 'freq1'=>$freq1, 'norm1'=>$norm1, 'freq2'=>$freq2, 'norm2'=>$norm2};
     }
     $self->{_keyword_dict} = \%keyword_hash;  # TODO: deal with types and tokens
-    # print(Dumper($self->{_keyword_dict}));
     return \%keyword_hash;  # return hash in case we want to use it later
 }
 
@@ -151,7 +152,7 @@ sub print_keywords {
         $success = open($out, ">", $filename);
         if (! $success) {
             carp "Couldn't open $filename, $!\n";
-            return -1;
+            return 0;  # not like exit code 0. this is 0 as in false, not good.
         }
     }
 
@@ -165,6 +166,7 @@ sub print_keywords {
         $self->{_keyword_dict}{$key}{'norm1'}, $self->{_keyword_dict}{$key}{'freq2'}, $self->{_keyword_dict}{$key}{'norm2'});
     }
     close($out) if $success;  # don't close STDOUT
+    return $self;
 }
 
 1;

@@ -80,12 +80,16 @@ sub set_global_settings {
     # print("Global stop words (currently $global_stop_words)");
     # # TODO: implement add stop words
     print("\n");
+
+    return 1;
 }
 
 sub view_global_settings {
     print("Default extension to use with openDir: $global_default_extension\n");
     print("Global regex to define token: $global_regex\n");
     print("Global case sensitive: $global_case_sensitive\n");
+
+    return 1;
 }
 
 sub set_tool_settings_wordlist {
@@ -108,6 +112,8 @@ sub set_tool_settings_wordlist {
     chomp($input);
     if ($input ne  "") {$tool_wordlist_corpus_checkval = $input};
     print("\n");
+
+    return 1;
 }
 
 sub view_tool_settings_wordlist {
@@ -129,11 +135,15 @@ sub set_tool_settings_concordance {
     chomp($input);
     if ($input ne  "") {$tool_concordance_win_length = $input};
     print("\n");
+
+    return 1;
 }
 
 sub view_tool_settings_concordance {
     print("Case sensitive: $tool_concordance_case\n");
     print("Window (how many tokens to display before and after query): $tool_concordance_win_length\n");
+
+    return 1;
 }
 
 sub set_tool_settings_ngram {
@@ -248,6 +258,8 @@ sub set_tool_settings_ngram {
     }
 
     print("\n");
+
+    return 1;
 }
 
 sub view_tool_settings_ngram {
@@ -283,6 +295,8 @@ sub view_tool_settings_ngram {
     print("Measure to use for trigrams: $tool_ngram_measure_3\n");
 
     print("Path to count.pl and statistic.pl: $tool_ngram_script_dir\n");
+
+    return 1;
 }
 
 sub set_tool_settings_keyword {
@@ -407,6 +421,8 @@ sub set_tool_settings_keyword {
 
         if ($input ne "") {$keyword_outfilename = $input;}
     }
+
+    return 1;
 }
 
 sub view_tool_settings_keyword {
@@ -415,6 +431,8 @@ sub view_tool_settings_keyword {
     print("Keyword files: @tool_keyword_files\n");
     print("Save keyword FreqDist to a file after creating it (1/0): $tool_keyword_save_freqdist\n");
     print("Filename to store keyword FreqDist in: $keyword_outfilename\n");
+
+    return 1;
 }
 
 sub run_wordlist {
@@ -489,6 +507,8 @@ sub run_wordlist {
             }
         }
     }
+
+    return 1;
 }
 
 sub search_token {
@@ -565,6 +585,8 @@ sub run_concordance {
             }
         }
     }
+
+    return 1;
 }
 
 sub run_ngrams {
@@ -593,7 +615,7 @@ sub run_ngrams {
             }
         }
         else {
-            return -2;  # user chose not to continue
+            return 0;  # user chose not to continue
         }
     }
 
@@ -679,6 +701,8 @@ sub run_ngrams {
             unlink "$dest/$file" || warn "Could not unlink $file: $!";
         }
     }
+
+    return 1;
 }
 
 sub run_keyword {
@@ -723,6 +747,8 @@ sub run_keyword {
             $keyword_obj->print_keywords($result_name);
         }
     }
+
+    return 1;
 }
 
 sub main {
@@ -891,6 +917,10 @@ sub main {
             run_keyword();
         }
     }
+
+    return 1;
 }
 
 main();
+
+1;
