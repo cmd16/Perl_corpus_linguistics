@@ -1,0 +1,3563 @@
+#!/Users/cat/perl
+use strict;
+use warnings;
+package FreqDist;
+use Carp;
+# use lib '/Users/cat/perl5/lib/perl5';
+
+sub new {
+    my $class = shift;
+    my %hash;
+    my %keyword_dict;
+
+    my $self = {
+        _types => 0,
+        _tokens => 0,
+        _hash => \%hash,
+        _keyword_dict => \%keyword_dict,
+    };
+    bless $self, $class;
+    return $self;
+}
+
+sub get_types {
+    my ($self) = @_;
+    return $self->{_types};
+}
+
+sub get_tokens {
+    my ($self) = @_;
+    return $self->{_tokens};
+}
+
+sub get_keys {
+    my ($self) = @_;
+    my @keys = ();
+    foreach my $key (sort { $self->{_hash}{$b} <=> $self->{_hash}{$a} } keys $self->{_hash}) {
+        push(@keys, $key);
+    }
+    return @keys;
+}
+
+sub get_hash {
+    my ($self) = @_;
+    return $self->{_hash};
+}
+
+sub get_count {
+    my ($self, $token) = @_;
+    my $count = $self->{_hash}{$token};
+    if ($count) {
+        return $count;
+    }
+    return 0;
+}
+
+sub get_prob_token {
+    my ($self, $token) = @_;
+    if ($self->get_tokens() == 0) { return 0; }
+    return $self->get_count($token) / $self->get_tokens();
+}
+
+sub get_prob_type {
+    my ($self, $type) = @_;
+    if ($self->get_types() == 0) { return 0; }
+    return 1 / $self->get_types();
+}
+
+sub get_normalized_freq {
+    my ($self, $token) = @_;
+    if ($token eq "" or $self->get_tokens() == 0) { return 0; }
+    return $self->get_count($token) / $self->get_tokens() * 1000000;
+}
+
+sub add_token {
+    my ($self, $token) = @_;
+    $self->{_hash}{$token} += 1;
+    $self->{_tokens} += 1;
+    $self->{_types} = scalar keys %{$self->{_hash}};
+}
+
+sub remove_type {
+    my ($self, $type) = @_;
+    my $tokens = $self->get_count($type);
+    delete $self->{_hash}{$type};
+    $self->{_tokens} -= $tokens;
+    $self->{_types} -= 1;
+}
+
+sub add_token_freq {
+    my ($self, $token, $freq) = @_;
+    if ($freq > 0) {
+        $self->{_hash}{$token} += $freq;
+        $self->{_tokens} += $freq;
+        $self->{_types} = keys %{$self->{_hash}};
+    }
+}
+
+sub get_max {
+    my ($self) = @_;
+    my $max_token;
+    my $max_freq = 0;
+    scalar keys $self->{_hash}; # reset the internal iterator so a prior each() doesn't affect the loop
+    while(my($token, $freq) = each $self->{_hash}) {
+        if ($freq > $max_freq) {
+            $max_token = $token;
+            $max_freq = $freq;
+        }
+    }
+    return ($max_token, $max_freq)
+}
+
+sub clear_hash {  # TODO: fix this
+    my ($self) = @_;
+    $self->{_hash} = {};
+    $self->{_types} = 0;
+    $self->{_tokens} = 0;
+    $self->{_keyword_dict} = {};
+}
+
+sub out_to_txt {
+    my ($self, $filename) = @_;
+    my $out;
+    my $success;
+
+    if ($filename eq "STDOUT") {
+        $success = 0;  # did not open a file
+        $out = *STDOUT;
+    }
+    else {
+        $success = open($out, ">", $filename);
+        if (! $success) {
+            carp "Couldn't open $filename, $!\n";
+            return -1;
+        }
+    }
+
+    printf $out "#Word types: %d\n", $self->{_types};
+    printf $out "#Word tokens: %d\n", $self->{_tokens};
+    printf $out "#Search results: 0\n";
+    my $rank = 1;
+    foreach my $key (sort { $self->{_hash}{$b} <=> $self->{_hash}{$a}
+                            or $a cmp $b } keys $self->{_hash}) {
+        printf $out "%d\t%d\t%s\n", $rank, $self->{_hash}{$key}, $key;
+        $rank += 1;
+    }
+    close($out) if $success;  # don't close STDOUT
+}
+
+sub open_from_txt {
+    my ($self, $filename) = @_;
+    # clear out the old values
+    $self->clear_hash();
+    # read in the new values
+    open(my $in, "<", $filename) || carp "Couldn't open $filename, $!";
+    while(my $line = <$in>) {
+        next if $. < 2;  # skip first 2 lines which have types and tokens (https://stackoverflow.com/questions/14393295/best-way-to-skip-a-header-when-reading-in-from-a-text-file-in-perl)
+        chomp($line);  # get rid of newline at end
+        my @word_and_freq = split(/\t/, $line);
+        my $len = @word_and_freq;
+        next if $len < 3;
+        my $freq = $word_and_freq[1];
+        $freq = int($freq);
+        $self->add_token_freq($word_and_freq[2], $freq);
+    }
+    close $in;
+}
+
+sub update {  # TODO: check declaration
+    my ($self, $other) = @_;
+    my $other_hash = $other->get_hash(); # reset the internal iterator so a prior each() doesn't affect the loop
+    while(my($token, $freq) = each %{$other_hash}) {
+        $self->add_token_freq($token, $freq);
+    }
+}
+
+1;
+#!/Users/cat/perl
+use strict;
+use warnings;
+package Keyword;
+use FreqDist;  # this uses Carp
+use Carp;
+use Data::Dumper;
+
+sub new {
+    my $class = shift;
+    my (%args) = @_;
+    my %keyword_dict;
+    my $freqdist1 = $args{freqdist1} // FreqDist->new();  # // is defined-or operator introduced in Perl 5.10
+    my $freqdist2 = $args{freqdist2} // FreqDist->new();
+    my $name1 = $args{name1} // "Corpus 1";
+    my $name2 = $args{name2} // "Corpus 2";
+
+    my $self = {
+        _freqdist1 => $freqdist1,  # make empty FreqDist because this will be easier to deal with later
+        _freqdist2 => $freqdist2,
+        _name1 => $name1,
+        _name2 => $name2,
+        _keyword_dict => \%keyword_dict,
+    };
+    bless $self, $class;
+    return $self;
+}
+
+sub set_name1 {
+    my ($self, $name1) = @_;  # TODO: type checking in case user gives non-string?
+    $self->{_name1} = $name1;
+}
+
+sub get_name1 {
+    my ($self) = @_;
+    return $self->{_name1};
+}
+
+sub set_name2 {
+    my ($self, $name2) = @_;  # TODO: type checking in case user gives non-string?
+    $self->{_name2} = $name2;
+}
+
+sub set_freqdist1 {
+    my ($self, $freqdist1) = @_;
+    $self->{_freqdist1} = $freqdist1;
+}
+
+sub get_freqdist1 {
+    my ($self) = @_;
+    return $self->{_freqdist1};
+}
+
+sub set_freqdist2 {
+    my ($self, $freqdist2) = @_;
+    $self->{_freqdist2} = $freqdist2;
+}
+
+sub get_freqdist2 {
+    my ($self) = @_;
+    return $self->{_freqdist2};
+}
+
+sub swap_freqdists {
+    my ($self) = @_;
+    my $new_1 = $self->{_freqdist2};
+    my $new_2 = $self->{_freqdist1};
+    $self->set_freqdist1($new_1);
+    $self->set_freqdist2($new_2);
+}
+
+sub get_tokens {
+    my ($self) = @_;
+    return keys $self->{_keyword_dict};
+}
+
+sub get_token_stats {
+    my ($self, $token) = @_;
+    if ($token eq "") {
+        return {};
+    }
+    return $self->{_keyword_dict}{$token};
+}
+
+sub get_token_keyness {
+    my ($self, $token) = @_;
+    return $self->{_keyword_dict}{$token}{'keyness'};
+}
+
+sub keyword_analysis {
+    my ($self, $p) = @_;
+    my $crit;
+    if ($p == 0.05) { $crit = 3.84; }
+    elsif ($p == 0.01) { $crit = 6.63; }
+    elsif ($p == 0.001) { $crit = 10.83; }
+    elsif ($p == 0.0001) { $crit = 15.13; }
+    elsif ($p == 0){ $crit = 0; }
+    else {
+        warn("Invalid p value. Setting p value to .01\n");
+        $crit = 6.63;
+    }
+    my %keyword_hash;
+    my $types1 = $self->{_freqdist1}->get_types();
+    my $types2 = $self->{_freqdist2}->get_types();
+
+    # printf("# Corpus 1:\t%d\t%d\n", $self->{_freqdist1}->get_types(), $self->{_freqdist1}->get_tokens());
+    # printf("# Corpus 2:\t%d\t%d\n", $self->{_freqdist2}->get_types(), $self->{_freqdist2}->get_tokens());
+
+    scalar keys $self->{_keyword_dict}; # reset the internal iterator so a prior each() doesn't affect the loop
+    while(my($token, $freq1) = each $self->{_freqdist1}->get_hash()) {
+        my $freq2 = $self->{_freqdist2}->get_count($token);
+        my $norm1 = $self->{_freqdist1}->get_normalized_freq($token);
+        my $norm2 = $freq2 == 0? 0 : $self->{_freqdist2}->get_normalized_freq($token);
+
+        next if ($norm2 > $norm1);  # avoid double counting when going both ways
+        # Note: double counting will still occur when $norm2 == $norm1, but in that case the log likelihood is 0 so we don't care
+
+        my $tokens1 = $self->{_freqdist1}->get_tokens();
+        my $tokens2 = $self->{_freqdist2}->get_tokens();
+        my $num = ($freq1 + $freq2) / ($tokens1 + $tokens2);
+        my $E1 = $tokens1 * $num;
+        my $E2 = $tokens2 * $num;
+
+        my $keyness;
+        if ($freq2 == 0 or $E2 == 0) {
+            $keyness = 2 * ($freq1 * log($freq1/$E1));
+        }
+        else {
+            $keyness = 2 * ($freq1 * log($freq1/$E1) + ($freq2 * log($freq2/$E2)));
+        }
+
+        next if ($keyness < $crit);
+
+        $keyword_hash{$token} = {'keyness'=> $keyness, 'freq1'=>$freq1, 'norm1'=>$norm1, 'freq2'=>$freq2, 'norm2'=>$norm2};
+    }
+    $self->{_keyword_dict} = \%keyword_hash;  # TODO: deal with types and tokens
+    # print(Dumper($self->{_keyword_dict}));
+    return \%keyword_hash;  # return hash in case we want to use it later
+}
+
+sub print_keywords {
+    my ($self, $filename) = @_;
+    my $out;
+    my $success;
+
+    if ($filename eq "STDOUT") {
+        $success = 0;  # did not open a file
+        $out = *STDOUT;
+    }
+    else {
+        $success = open($out, ">", $filename);
+        if (! $success) {
+            carp "Couldn't open $filename, $!\n";
+            return -1;
+        }
+    }
+
+    printf($out "# Corpus 1:\t%d\t%d\n", $self->{_freqdist1}->get_types(), $self->{_freqdist1}->get_tokens());
+    printf($out "# Corpus 2:\t%d\t%d\n", $self->{_freqdist2}->get_types(), $self->{_freqdist2}->get_tokens());
+    printf($out "# %s\t%s\t%s\t%s\t%s\t%s\n", "word", "keyness", "freq1",
+    "norm1", "freq2", "norm2");
+    foreach my $key (sort { $self->{_keyword_dict}{$a}{'keyness'} <=> $self->{_keyword_dict}{$b}{'keyness'}
+                            or $a cmp $b } keys $self->{_keyword_dict}) {
+        printf($out "%s\t%f\t%d\t%f\t%d\t%f\n", $key, $self->{_keyword_dict}{$key}{'keyness'}, $self->{_keyword_dict}{$key}{'freq1'},
+        $self->{_keyword_dict}{$key}{'norm1'}, $self->{_keyword_dict}{$key}{'freq2'}, $self->{_keyword_dict}{$key}{'norm2'});
+    }
+    close($out) if $success;  # don't close STDOUT
+}
+
+1;
+#!/Users/cat/perl
+package TagParser;
+use base qw(HTML::Parser);
+#!/Users/cat/perl
+use strict;
+use warnings;
+use lib '/Users/cat/perl5/lib/perl5';
+use Lingua::EN::Segmenter::TextTiling qw(segments);  # Note: Splitter.pm has been modified to not change case
+use FreqDist;
+use Keyword;
+use Data::Dumper;
+
+sub tokenize_dir {
+    my ($dirname, $splitter) = @_;
+    my $freq_dist_obj = FreqDist->new();  # TODO update definition
+    opendir(DIR, $dirname) || warn "Could not open $dirname, $!\n";
+    while (my $filename = readdir(DIR)) {
+        if (-f $filename) {  # is this enough to avoid .DS_Store ?
+            # print "processing {$filename}";
+            my $current_freqdist = tokenize_file("$dirname/$filename", $splitter);
+            $freq_dist_obj->update($current_freqdist);
+        }
+    }
+    closedir(DIR);
+    return $freq_dist_obj;
+}
+
+sub tokenize_file {
+    my ($filename, $splitter, $case_sensitive) = @_;
+    # if (! $case_sensitive) {
+    #     print("lc\n");
+    # }
+    # else {
+    #     print("original\n");
+    # }
+    my $current_freqdist = FreqDist->new();
+    open(my $in, "<", $filename) || warn "Could not open tokenize $filename, $!\n";
+    while(my $line = <$in>) {
+        my $tokens = $splitter->words($line);
+        foreach my $token (@$tokens) {
+            if ($token eq "") {
+                next;
+            }
+            if (! $case_sensitive) {
+                $token = lc $token;
+            }
+            $current_freqdist->add_token($token);
+            # condition not needed; changed token def if $token =~ /^[a-zA-Z']+$/;  # add the token unless it contains a non-alpha character
+        }
+    }
+    close $in;
+    return $current_freqdist;
+}
+
+sub tokenize_from_idlist {
+    my ($list_filename, $path, $splitter, $case_sensitive) = @_;
+    open(my $in, "<$list_filename") || warn "Could not open list_filename, $!\n";
+    my $freq_dist_obj = FreqDist->new();  # TODO update definition
+    while(my $line = <$in>) {
+        chomp($line);
+        my $filename = "$path/$line.txt";
+        # print($filename, "\n");
+        my $current_freqdist = tokenize_file($filename, $splitter, $case_sensitive);
+        $freq_dist_obj->update($current_freqdist);
+    }
+    close $in;
+    return $freq_dist_obj;
+}
+
+# TODO: modify to work with list of filenames
+sub find_prototypical {
+    my (%args) = @_;
+    my $comp_freqdist = $args{comp_freqdist} // die "No comparison freqdist provided";
+    my $source_dir = $args{source_dir} // ".";
+    my $idlist = $args{idlist} // die "No idlist provided";
+    my $outfilename = $args{outfilename} // "$source_dir/prototypical.txt";
+    my $n = $args{n} // 0;  # 0 means get everything
+    my $extension = $args{extension} // "";
+    my $case_sensitive = $args{case_sensitive} // 0;
+    my $splitter = $args{splitter} // die "No splitter provided!";
+    my $use_wordlist = $args{use_wordlist} // 0;
+    my $verbose = $args{verbose} // 0;
+
+    my %file_data = {};
+
+    my $keyword_obj = Keyword->new(freqdist1 => $comp_freqdist);
+
+    open(my $in, "<$idlist") || warn "Could not open $idlist, $!\n";
+    while(my $line = <$in>) {
+        chomp($line);
+        if ($verbose) {
+            print("$line wordlist ");
+        }
+        my $filename = "$source_dir/$line$extension";
+
+        my $current_freqdist = FreqDist->new();
+        if ($use_wordlist) {
+            $current_freqdist->open_from_txt($filename);
+        }
+        else {
+            $current_freqdist = tokenize_file($filename, $splitter, $case_sensitive);
+        }
+
+        my $sum = 0;
+
+        if ($verbose) {
+            print("keywords\n");
+        }
+        $keyword_obj->set_freqdist2($current_freqdist);
+        $keyword_obj->keyword_analysis(0);  # p value of 0
+
+        foreach my $token ($keyword_obj->get_tokens()) {
+            $sum += $keyword_obj->get_token_keyness($token);
+        }
+
+        $keyword_obj->swap_freqdists();
+        $keyword_obj->keyword_analysis(0);  # p value of 0
+
+        foreach my $token ($keyword_obj->get_tokens()) {
+            $sum += $keyword_obj->get_token_keyness($token);
+        }
+
+        $file_data{$filename} = $sum;
+    }
+    close $in;
+
+    my $out;
+    my $success = open($out, ">", $outfilename);
+    if (! $success) {
+        warn "Couldn't open $outfilename, $!\n";
+        return -1;
+    }
+
+    my $i = 0;
+    if ($n == 0 or $n >= keys %file_data) {
+        $n = keys %file_data;  # TODO: see if this works
+    }
+
+    if ($verbose) {
+        print("sort and print results\n");
+        # print(Dumper(\%file_data));
+    }
+
+    foreach my $key (keys %file_data) {
+        if (! defined $file_data{$key}) {
+            print("$key\n");
+            delete $file_data{$key};
+        }
+        # print "$key\n";
+        # printf "%s\t%f\n", $key, $file_data{$key};
+    }
+
+    foreach my $key (sort { $file_data{$a} <=> $file_data{$b} } keys %file_data) {
+        last if ($i == $n);
+        printf $out "%s\t%f\n", $key, $file_data{$key};
+        $i += 1;
+    }
+    close $out;
+}
+
+return 1;
+use strict;
+use warnings;
+use Lingua::EN::Segmenter::TextTiling qw(segments);
+use FreqDist;
+use Keyword;
+use Time::HiRes qw(time);
+use Path::Tiny qw(path);
+use File::Basename;
+use File::Copy;
+require "./Tokenize.PL";
+
+my $global_default_extension = ".txt";
+my $global_save_intermediate = "0";
+my $global_save_intermediate_dir = "";
+
+my $global_regex = "[^a-zA-Z]+";
+my $global_case_sensitive = "0";  # case insensitive
+my $global_stop_words = ();
+
+my $tool_wordlist_regex_checkval = "0";  # match whatever global is
+my $tool_wordlist_regex = "";
+my $tool_wordlist_corpus_checkval = "0";  # raw files (1 means wordlists)
+my $tool_wordlist_wordlists = ();
+
+my $tool_concordance_case = "0";  # same as global settings
+my $tool_concordance_win_length = "7";
+
+my $tool_ngram_case = "0";
+my $tool_ngram_regex_filename = "valid_tokens.txt";
+my $tool_ngram_nontoken_checkval = "0";
+my $tool_ngram_nontoken_filename = "";
+my $tool_ngram_stop_checkval = "0";
+my $tool_ngram_stop_filename = "";
+my $tool_ngram_freq_checkval = "0";
+my $tool_ngram_freq = "1";
+my $tool_ngram_ufreq_checkval = "0";
+my $tool_ngram_ufreq = "1";
+my $tool_ngram_newline_checkval = "1";
+my $tool_ngram_precision = "6";
+my $tool_ngram_measure_2 = "ll.pm";
+my $tool_ngram_measure_3 = "ll.pm";
+my $tool_ngram_measure_4 = "ll.pm";
+my $tool_ngram_script_dir = "/Users/cat/perl5/bin";
+
+my $tool_keyword_p = 0.01;
+my $tool_keyword_reference_checkval = "0";  # text files
+my @tool_keyword_files = ();
+my $tool_keyword_save_freqdist = "0";
+my $keyword_outfilename = "";
+
+my $wordlist_types = "0";
+my $wordlist_tokens = "0";
+my $wordlist_search_num = "0";
+my $wordlist_freqdist = FreqDist->new();
+my $keyword_freqdist = FreqDist->new();
+my $keyword_obj = Keyword->new();
+
+my @wordlist_files = ();
+
+my $splitter = Lingua::EN::Splitter->new();
+$splitter->set_non_word_regexp("$global_regex");
+
+sub set_global_settings {
+
+    print("Default extension to use with openDir. Currently $global_default_extension: ");
+    my $input = <STDIN>;
+    chomp($input);
+    if ($input ne  "") {$global_default_extension = $input};
+
+    print("Global regex to define nontoken (simplest way is [^nontoken]+). Currently $global_regex: ");
+    $input = <STDIN>;
+    chomp($input);
+    if ($input ne  "") {$global_regex = $input};
+
+    print("Global case sensitive (1/0). Currently $global_case_sensitive: ");
+    $input = <STDIN>;
+    chomp($input);
+    if ($input ne  "") {$global_case_sensitive = int($input)};
+
+    # print("Global stop words (currently $global_stop_words)");
+    # # TODO: implement add stop words
+    print("\n");
+}
+
+sub view_global_settings {
+    print("Default extension to use with openDir: $global_default_extension\n");
+    print("Global regex to define token: $global_regex\n");
+    print("Global case sensitive: $global_case_sensitive\n");
+}
+
+sub set_tool_settings_wordlist {
+    print("Use global regex for nontoken definition (currently $global_regex) (0) or write your own (1).
+    Currently $tool_wordlist_regex_checkval: ");
+    my $input = <STDIN>;
+    chomp($input);
+    # TODO: why isn't this working?
+    if ($input ne  "") {$tool_wordlist_regex_checkval = $input};
+
+    if ($tool_wordlist_regex_checkval eq "1") {
+        print("Set wordlist regex for nontoken (simplest way is [^token]+ or !token). Currently $tool_wordlist_regex: ");
+        $input = <STDIN>;
+        chomp($input);
+        if ($input ne  "") {$tool_wordlist_regex = $input};
+    }
+
+    print("Load wordlist from text files (0) or wordlist files (1). Currently $tool_wordlist_corpus_checkval: ");
+    $input = <STDIN>;
+    chomp($input);
+    if ($input ne  "") {$tool_wordlist_corpus_checkval = $input};
+    print("\n");
+}
+
+sub view_tool_settings_wordlist {
+    print("Use global regex: $tool_wordlist_regex_checkval\n");
+    if (! $tool_wordlist_regex_checkval) {
+        print("Wordlist regex: $tool_wordlist_regex\n");
+    }
+    print("Wordlist from text files (0) or wordlist files (1): $tool_wordlist_corpus_checkval\n");
+}
+
+sub set_tool_settings_concordance {
+    print("Case sensitive: same as global (currently $global_case_sensitive) (0), sensitive (1), or insensitive (2). Currently $tool_concordance_case: ");
+    my $input = <STDIN>;
+    chomp($input);
+    if ($input ne  "") {$tool_concordance_case = $input};
+
+    print("Window (how many tokens to display before and after query). Currently $tool_concordance_win_length: ");
+    $input = <STDIN>;
+    chomp($input);
+    if ($input ne  "") {$tool_concordance_win_length = $input};
+    print("\n");
+}
+
+sub view_tool_settings_concordance {
+    print("Case sensitive: $tool_concordance_case\n");
+    print("Window (how many tokens to display before and after query): $tool_concordance_win_length\n");
+}
+
+sub set_tool_settings_ngram {
+    print("Case sensitive: same as global (currently $global_case_sensitive) (0), sensitive (1), or insensitive (2). Currently $tool_ngram_case: ");
+    my $input = <STDIN>;
+    chomp($input);
+    if ($input ne  "") {$tool_ngram_case = $input};
+
+    print("Filename containing token regexes for ngrams. Currently $tool_ngram_regex_filename: ");
+    $input = <STDIN>;
+    chomp($input);
+    if ($input ne "" and -f $input) {
+        $tool_ngram_regex_filename = $input;
+    }
+    else {
+        warn("$input could not be found.");
+    }
+
+    print("Use file for nontokens (1/0). Currently $tool_ngram_nontoken_checkval: ");
+    $input = <STDIN>;
+    chomp($input);
+    if ($input ne  "") {$tool_ngram_nontoken_checkval = $input};
+
+    if ($tool_ngram_nontoken_checkval eq "1") {
+        print("Filename containing nontoken regexes for ngrams (currently $tool_ngram_nontoken_filename): ");
+        $input = <STDIN>;
+        chomp($input);
+        if ($input ne  "") {$tool_ngram_nontoken_filename = $input};
+    }
+
+    print("Use file for stopwords (1/0). Currently $tool_ngram_stop_checkval: ");
+    $input = <STDIN>;
+    chomp($input);
+    if ($input ne  "") {$tool_ngram_stop_checkval = $input};
+
+    if ($tool_ngram_stop_checkval eq "1") {
+        print("Filename containing stopword regexes for ngrams. Currently $tool_ngram_stop_filename: ");
+        $input = <STDIN>;
+        chomp($input);
+        if ($input ne  "") {$tool_ngram_stop_filename = $input};
+    }
+
+    print("Set minimum frequency (1/0). Currently $tool_ngram_freq_checkval: ");
+    $input = <STDIN>;
+    chomp($input);
+    if ($input ne  "") {$tool_ngram_freq_checkval = $input};
+
+    if ($tool_ngram_freq_checkval eq "1") {
+        print("Minimum frequency. Currently $tool_ngram_freq: ");
+        $input = <STDIN>;
+        chomp($input);
+        if ($input ne  "") {$tool_ngram_freq = $input};
+    }
+
+    print("Set maximum frequency (1/0). Currently $tool_ngram_ufreq_checkval: ");
+    $input = <STDIN>;
+    chomp($input);
+    if ($input ne  "") {$tool_ngram_ufreq_checkval = $input};
+
+    if ($tool_ngram_ufreq_checkval eq "1") {
+        print("Maximum frequency. Currently $tool_ngram_ufreq: ");
+        $input = <STDIN>;
+        chomp($input);
+        if ($input ne  "") {$tool_ngram_ufreq = $input};
+    }
+
+    print("Count ngrams across newline tokens (1/0). Currently $tool_ngram_newline_checkval: ");
+    $input = <STDIN>;
+    chomp($input);
+    if ($input ne  "") {$tool_ngram_newline_checkval = $input};
+
+    print("Number of digits to round results to. Currently $tool_ngram_precision: ");
+    $input = <STDIN>;
+    chomp($input);
+    if ($input ne  "") {$tool_ngram_newline_checkval = $input};
+
+    print("Measure to use for bigrams.
+    Chi phi (phi.pm), tscore.pm, Chi squared (x2.pm),
+    dice.pm, jaccard.pm,
+    fisherLeft.pm, fisherRight.pm, fisherTwotailed.pm,
+    Log likelihood (ll.pm), Pointwise Mutual Information (pmi.pm),
+    Poisson Stirling (ps.pm), True Mutual Information (tmi.pm),
+    odds.pm
+    Currently $tool_ngram_measure_2: ");
+    $input = <STDIN>;
+    chomp($input);
+    if ($input ne  "") {$tool_ngram_measure_2 = $input};
+
+    print("Measure to use for trigrams.
+    Log likelihood (ll.pm), Pointwise Mutual Information (pmi.pm),
+    Poisson Stirling (ps.pm), True Mutual Information (tmi.pm),
+    Currently $tool_ngram_measure_3: ");
+    $input = <STDIN>;
+    chomp($input);
+    if ($input ne  "") {$tool_ngram_measure_3 = $input};
+
+    print("Path to count.pl and statistic.pl. Currently $tool_ngram_script_dir: ");
+    $input = <STDIN>;
+    chomp($input);
+    if (-f "$input/count.pl" and -f "$input/statistic.pl") {
+        $tool_ngram_script_dir = $input;
+    }
+    else {
+        warn("count.pl and/or statistic.pl couldn't be found in $tool_ngram_script_dir");
+    }
+
+    print("\n");
+}
+
+sub view_tool_settings_ngram {
+    print("Case sensitive: $tool_ngram_case\n");
+
+    print("Use file for nontokens (1/0): $tool_ngram_nontoken_checkval\n");
+    if (! $tool_ngram_nontoken_checkval) {
+        print("Filename containing nontoken regexes for ngrams: $tool_ngram_nontoken_filename\n");
+    }
+
+    print("Use file for stopwords (1/0): $tool_ngram_stop_checkval\n");
+    if (! $tool_ngram_stop_checkval) {
+        print("Filename containing stopword regexes for ngrams: $tool_ngram_stop_filename\n");
+    }
+
+    print("Set minimum frequency (1/0): $tool_ngram_freq_checkval\n");
+
+    if (! $tool_ngram_freq_checkval) {
+        print("Minimum frequency: $tool_ngram_freq\n");
+    }
+
+    print("Set maximum frequency (1/0): $tool_ngram_ufreq_checkval\n");
+    if (! $tool_ngram_ufreq_checkval) {
+        print("Maximum frequency: $tool_ngram_ufreq\n");
+    }
+
+    print("Count ngrams across newline tokens (1/0): $tool_ngram_newline_checkval\n");
+
+    print("Number of digits to round results to: $tool_ngram_precision\n");
+
+    print("Measure to use for bigrams: $tool_ngram_measure_2\n");
+
+    print("Measure to use for trigrams: $tool_ngram_measure_3\n");
+
+    print("Path to count.pl and statistic.pl: $tool_ngram_script_dir\n");
+}
+
+sub set_tool_settings_keyword {
+    print("P value for keyword analysis
+    p = 0.05 (exclude keywords with log likelihood < 3.84),
+    p = 0.01 (exclude keywords with log likelihood < 6.63),
+    p = 0.001 (exclude keywords with log likelihood < 10.83,
+    p = 0.0001 (exclude keywords with log likelihood < 15.13,
+    p = 0 (include all keywords)
+    Currently $tool_keyword_p: ");
+    my $input = <STDIN>;
+    chomp($input);
+
+    # convert input to float. This is a bit messy. TODO: refactor
+    if ($input eq  "0.05" or $input eq ".05") {
+        $tool_keyword_p = 0.05;
+    }
+    elsif ($input eq "0.01" or $input eq ".01") {
+        $tool_keyword_p = 0.01;
+    }
+    elsif ($input eq "0.001" or $input eq ".001") {
+        $tool_keyword_p = 0.001;
+    }
+    elsif ($input eq "0.0001" or $input eq ".0001") {
+        $tool_keyword_p = 0.0001;
+    }
+    elsif ($input eq "0") {
+        $tool_keyword_p = 0;
+    }
+
+    print("Use text files (0) or wordlists (1). Currently $tool_keyword_reference_checkval: ");
+    $input = <STDIN>;
+    chomp($input);
+    if ($input ne  "") {$tool_keyword_reference_checkval = $input};
+
+    print("Keyword files are @tool_keyword_files. 1 to add files, 2 to add directory, 3 to remove files, 4 to swap wordlist and keyword files\n");
+    $input = <STDIN>;
+    chomp($input);
+
+    if ($input eq "1") {
+        print("Filenames separated by spaces: ");
+        my $names = <STDIN>;
+        chomp($names);
+        foreach my $filename (split(" ", $names)) {
+            if (-f $filename) {
+                push(@tool_keyword_files, $filename);
+            }
+            else {
+                warn("$filename could not be found.");
+            }
+        }
+    }
+    elsif ($input eq "2") {
+        print("Directory: ");
+        my $dirname = <STDIN>;
+        chomp($dirname);
+        if (-d $dirname) {
+            opendir(DIR, $dirname) || warn "Could not open $dirname, $!\n";
+            while (my $filename = readdir(DIR)) {
+                $filename = "$dirname/$filename";
+                if (-f $filename) {
+                    if ($filename =~ /$global_default_extension$/)  {
+                        push(@tool_keyword_files, $filename);
+                    }
+                    else {
+                        warn("Skipping $filename because it doesn't match the extension");
+                    }
+                }
+                else {
+                    warn("$filename could not be found.");
+                }
+            }
+        }
+        else {
+            warn("$dirname could not be found.");
+        }
+    }
+    elsif ($input eq "3") {
+        for my $i (0..$#tool_keyword_files) {
+            my $filename = $tool_keyword_files[$i];
+            print("$i\t$filename\n");
+        }
+        print("Indexes of files to remove separated by spaces or 'all' to remove all: ");
+        my $input = <STDIN>;
+        chomp($input);
+        if ($input eq "all") {
+            @tool_keyword_files = ();
+        }
+        else {
+            my @indexes = split(" ", $input);
+            foreach my $del_idx (@indexes) {
+                $del_idx = int($del_idx);
+                splice(@tool_keyword_files, $del_idx, 1);
+            }
+        }
+    }
+    elsif ($input eq "4") {
+        my @temp = @tool_keyword_files;
+        my $temp_check = $tool_keyword_reference_checkval;
+
+        @tool_keyword_files = @wordlist_files;
+        $tool_keyword_reference_checkval = $tool_wordlist_corpus_checkval;
+
+        @wordlist_files = @temp;
+        $tool_wordlist_corpus_checkval = $temp_check;
+
+        $keyword_obj->swap_freqdists();
+        $wordlist_freqdist = $keyword_obj->get_freqdist1();
+        $keyword_freqdist = $keyword_obj->get_freqdist2();
+    }
+
+    print("Save keyword FreqDist to a file after creating it (1/0). Currently $tool_keyword_save_freqdist: ");
+    $input = <STDIN>;
+    chomp($input);
+
+    if ($input eq "1") {
+        $tool_keyword_save_freqdist = "1";
+
+        print("Filename to store keyword FreqDist in. Currently $keyword_outfilename: ");
+        $input = <STDIN>;
+        chomp($input);
+
+        if ($input ne "") {$keyword_outfilename = $input;}
+    }
+}
+
+sub view_tool_settings_keyword {
+    print("P value for keyword analysis: $tool_keyword_p\n");
+    print("Use text files (0) or wordlists (1): $tool_keyword_reference_checkval\n");
+    print("Keyword files: @tool_keyword_files\n");
+    print("Save keyword FreqDist to a file after creating it (1/0): $tool_keyword_save_freqdist\n");
+    print("Filename to store keyword FreqDist in: $keyword_outfilename\n");
+}
+
+sub run_wordlist {
+    print("
+        1: Get wordlist
+        2: Search wordlist
+        0: Exit
+        ");
+    my $selection = <STDIN>;
+    chomp($selection);
+    if ($selection eq "1") {
+        $wordlist_freqdist->clear_hash();  # clear out the FreqDist
+        if ($tool_wordlist_corpus_checkval eq "0") {  # use regular files
+            if ($tool_wordlist_regex_checkval eq "1") {
+                print("using local regex $tool_wordlist_regex\n");
+                $splitter->set_non_word_regexp("$tool_wordlist_regex");
+            }
+            elsif ($tool_wordlist_regex_checkval eq "0") {
+                print("using global regex $global_regex\n");
+                $splitter->set_non_word_regexp("$global_regex");
+            }
+            foreach my $filename (@wordlist_files) {
+                my $case = $global_case_sensitive eq "1"? 1 : 0;  # TODO: more elegeant solution
+                $wordlist_freqdist->update(tokenize_file($filename, $splitter, $case));
+            }
+        }
+        else {
+            foreach my $filename (@wordlist_files) {
+                my $current_freq_dist = FreqDist->new();
+                $current_freq_dist->open_from_txt($filename);
+                $wordlist_freqdist->update($current_freq_dist);
+            }
+        }
+        print("Name of file to save in (or STDOUT to output to screen): ");
+        my $save_name = <STDIN>;
+        chomp($save_name);
+        $wordlist_freqdist->out_to_txt($save_name);
+
+        unless ($save_name eq "STDOUT") {
+            print("Display results (1/0): ");
+            my $answer = <STDIN>;
+            chomp($answer);
+            if ($answer eq "1") {
+                open(my $in, "<", $save_name) || warn "Could not open $save_name, $!\n";
+                while(my $line = <$in>) {
+                    print($line);
+                }
+                close $in;
+            }
+        }
+    }
+    elsif ($selection eq "2") {  # TODO: get search to work
+        print("Regex (0) or text (1): ");
+        my $reg_or_txt = <STDIN>;
+        chomp($reg_or_txt);
+
+        print("Query: ");
+        my $query = <STDIN>;
+        chomp($query);
+
+        if ($reg_or_txt eq "1") {
+            $query = quotemeta($query);  # escape special characters
+        }
+
+        print("Exact match (0) or partial match (1): ");
+        my $exact_or_partial = <STDIN>;
+        chomp($exact_or_partial);
+
+        foreach my $token ($wordlist_freqdist->get_keys()) {
+            if (search_token($token, $query, $exact_or_partial)) {
+                printf("%d\t%s\n", $wordlist_freqdist->get_count($token), $token);
+            }
+        }
+    }
+}
+
+sub search_token {
+    my ($token, $query, $exact_or_partial) = @_;
+    if ($exact_or_partial eq "1") {  # not exact
+        if ($token =~ /$query/) {
+            return 1;
+        }
+    }
+    elsif ($token =~ /^$query$/) {  # anchor at beginning and end
+        return 1;
+    }
+    return 0;
+}
+
+sub run_concordance {
+    print("Regex (0) or text (1): ");
+    my $reg_or_txt = <STDIN>;
+    chomp($reg_or_txt);
+
+    print("Enter the tokens separated by spaces: ");
+    my $query = <STDIN>;
+    chomp($query);
+
+    my @queries;
+
+    @queries = split(" ", $query);
+
+    if ($reg_or_txt eq "1") {
+        foreach my $query (@queries) {
+            $query = quotemeta($query);  # modify item in place
+        }
+    }
+
+    if ($tool_wordlist_regex_checkval eq "1") {
+        print("using local regex $tool_wordlist_regex\n");
+        $splitter->set_non_word_regexp("$tool_wordlist_regex");
+    }
+    elsif ($tool_wordlist_regex_checkval eq "0") {
+        print("using global regex $global_regex\n");
+        $splitter->set_non_word_regexp("$global_regex");
+    }
+
+    print("Exact match (0) or partial match (1): ");
+    my $exact_or_partial = <STDIN>;
+    chomp($exact_or_partial);
+
+    foreach my $filename (@wordlist_files) {
+        my $text = path("$filename")->slurp_utf8;
+        my @words = @{$splitter->words($text)};  # dereference the array
+        for my $i (0..$#words) {
+            my $match = 1;
+            for my $x (0..$#queries) {
+                my $query = $queries[$x];
+                my $idx = $i+$x;
+                my $token = $words[$idx];
+                if ( ($tool_concordance_case eq "0" and $global_case_sensitive eq "0")
+                    or ($tool_concordance_case eq "2") ) { $token = lc $token; }
+                if (search_token($token, $query, $exact_or_partial) != 1) {
+                    $match = 0;
+                    last;
+                }
+            }
+            if ($match) {
+                for my $y ($i-$tool_concordance_win_length..$i+$tool_concordance_win_length) {
+                    if ($y == $i) { print "<"; }  # delineate the beginning of the query
+                    print($words[$y]);
+                    if ($y == $i + $#queries) { print ">"; }  # delineate the end of the query
+                    print(" ");
+                }
+                print("\t$filename\n");
+            }
+        }
+    }
+}
+
+sub run_ngrams {
+    print("Destination directory (must be empty): ");
+    my $dest = <STDIN>;
+    chomp($dest);
+    if (! -d $dest) {
+        warn("$dest could not be found.");
+        return -1;
+    }
+
+    opendir(DH, $dest) || warn "opendir() failed: $!";
+    my @to_delete = readdir(DH);
+    closedir(DH);
+    my $num_to_delete = @to_delete;
+
+    if ($num_to_delete > 1) {  # if there are files to delete (checking length). "." is always included
+        warn("Directory supplied ($dest) is not empty. Type '1' to continue anyway (deleting the files)");
+        my $input = <STDIN>;
+        chomp($input);
+
+        if ($input eq "1") {
+            foreach my $file ( @to_delete ) {
+                next if $file eq ".";
+                unlink "$dest/$file" || warn "Could not unlink $file: $!";
+            }
+        }
+        else {
+            return -2;  # user chose not to continue
+        }
+    }
+
+    print("N (how many tokens in an ngram): ");
+    my $n = <STDIN>;
+    chomp($n);
+
+    print("Filename to store results in: ");
+    my $result_name = <STDIN>;
+    chomp($result_name);
+
+    if (($tool_ngram_case eq "0" and $global_case_sensitive eq "0")
+    or $tool_ngram_case eq "2") {
+        print("Creating lowercase files to be case insensitive\n");
+        foreach my $filename (@wordlist_files) {
+            my $basename = basename($filename);
+            open(my $in, "<", $filename) || warn("Couldn't open $filename, $!");
+            open(my $out, ">", "$dest/${basename}_lower.txt") || warn("Couldn't open $dest/${basename}_lower.txt, $!");
+            while(my $line = <$in>) {
+                print $out lc($line);
+            }
+            close $in;
+            close $out;
+        }
+    }
+    else {
+        print("Copying files for analysis\n");
+        foreach my $filename (@wordlist_files) {
+            copy($filename, $dest) || warn("Failed to copy $filename to $dest");
+        }
+    }
+
+    my @args = ($^X, "$tool_ngram_script_dir/count.pl", "--ngram=$n", "--token=$tool_ngram_regex_filename");
+
+    if ($tool_ngram_nontoken_checkval eq "1") {push(@args, "--nontoken=$tool_ngram_nontoken_filename");}
+    if ($tool_ngram_stop_checkval eq "1") {push(@args, "--stop=$tool_ngram_stop_filename");}
+    if ($tool_ngram_freq_checkval eq "1") {push(@args, "--frequency=$tool_ngram_freq");}
+    if ($tool_ngram_ufreq_checkval eq "1") {push(@args, "--ufrequency=$tool_ngram_ufreq");}
+    if ($tool_ngram_newline_checkval eq "0") {push(@args, "--newline");}
+    push(@args, "$dest/${result_name}_count.txt", $dest);
+
+    print("Getting ngrams\n");
+    system(@args);  # run count.pl
+
+    print("Display results (1/0): ");
+    my $display = <STDIN>;
+    chomp($display);
+
+    if ($display eq "1") {
+        open(my $in, "<", "$dest/${result_name}_count.txt") || warn "Could not open $dest/${result_name}_count.txt, $!\n";
+        while(my $line = <$in>) {
+            print($line);
+        }
+    }
+
+    if ($n lt "5" and $n gt "1") {
+        @args = ($^X, "$tool_ngram_script_dir/statistic.pl", "--ngram=$n", "--precision=$tool_ngram_precision");
+        if ($n eq "2") {push(@args, $tool_ngram_measure_2);}
+        elsif ($n eq "3") {push(@args, $tool_ngram_measure_3);}
+        elsif ($n eq "4") {push(@args, $tool_ngram_measure_4);}
+        push(@args, "$dest/${result_name}_stat.txt", "$dest/${result_name}_count.txt");
+
+        print("Calculating statistic\n");
+        system(@args);  # run statistic.pl
+
+        print("Display statistic (1/0): ");
+        $display = <STDIN>;
+        chomp($display);
+
+        if ($display eq "1") {
+            open(my $in, "<", "$dest/${result_name}_stat.txt") || warn "Could not open $dest/${result_name}_stat.txt, $!\n";
+            while(my $line = <$in>) {
+                print($line);
+            }
+        }
+    }
+
+    opendir(DH, $dest) || warn "opendir() failed: $!";
+    my @new_files = readdir(DH);
+    closedir(DH);
+    foreach my $file (@new_files) {
+        if (! ($file =~ /_count.txt$/) and ! ($file =~ /_stat.txt$/) ) {
+            unlink "$dest/$file" || warn "Could not unlink $file: $!";
+        }
+    }
+}
+
+sub run_keyword {
+    $wordlist_freqdist->out_to_txt("wordlist_freqdist.txt");
+    print("Creating FreqDist for keyword files\n");
+    $keyword_freqdist = FreqDist->new();
+
+    if ($tool_keyword_reference_checkval eq "1") {
+        foreach my $filename (@tool_keyword_files) {
+            my $current_freq_dist = FreqDist->new();
+            $current_freq_dist->open_from_txt($filename);
+            $keyword_freqdist->update($current_freq_dist);
+        }
+    }
+    else {
+        foreach my $filename (@tool_keyword_files) {
+            my $current_freq_dist = tokenize_file($filename, $splitter, $global_case_sensitive);
+            $keyword_freqdist->update($current_freq_dist);
+        }
+    }
+
+    if ($tool_keyword_save_freqdist) {
+        $keyword_freqdist->out_to_txt($keyword_outfilename);
+    }
+
+    print("Calculating keyword analysis\n");
+    $keyword_obj->set_freqdist1($wordlist_freqdist);
+    $keyword_obj->set_freqdist2($keyword_freqdist);
+
+    $keyword_obj->keyword_analysis($tool_keyword_p);
+
+    my $done = 0;
+    while (! $done) {  # loop so you don't lose the whole thing because you mistyped
+        print("Filename (or STDOUT to print to screen, or -1 to exit): ");
+        my $result_name = <STDIN>;
+        chomp($result_name);
+
+        if ($result_name eq "-1") {
+            $done = 1;
+        }
+        else {
+            $keyword_obj->print_keywords($result_name);
+        }
+    }
+}
+
+sub main {
+    my $choice = "-1";
+    my $seleciton = "-1";
+    while ($choice ne "0") {
+        print("
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    ");
+        my $choice = <STDIN>;
+        chomp($choice);
+        last if ($choice eq "0");
+        if ($choice eq "1") {
+            set_global_settings();
+            view_global_settings();
+        }
+        elsif ($choice eq "2") {
+            print("
+        1: Wordlist settings
+        2: Concordance settings
+        3: Ngram settings
+        4: Keyword settings
+        0: Exit
+        ");
+            my $selection = <STDIN>;
+            chomp($selection);
+            if ($selection eq "1") {
+                set_tool_settings_wordlist();
+                view_tool_settings_wordlist();
+            }
+            elsif ($selection eq "2") {
+                set_tool_settings_concordance();
+                view_tool_settings_concordance();
+            }
+            elsif ($selection eq "3") {
+                set_tool_settings_ngram();
+                view_tool_settings_ngram();
+            }
+            elsif ($selection eq "4") {
+                set_tool_settings_keyword();
+                view_tool_settings_keyword();
+            }
+        }
+        elsif ($choice eq "3") {
+            print("
+        1: Open file
+        2: Open directory
+        3: Open file containing filenames
+        ");
+            my $selection = <STDIN>;
+            chomp($selection);
+            if ($selection eq "1") {
+                print("filename: ");
+                my $filename = <STDIN>;
+                chomp($filename);
+                if (-f $filename) {
+                    push(@wordlist_files, $filename);
+                }
+                else {
+                    warn("$filename could not be found.");
+                }
+            }
+            elsif ($selection eq "2") {
+                print("directory name: ");
+                my $dirname = <STDIN>;
+                chomp($dirname);
+                if (-d $dirname) {
+                    opendir(DIR, $dirname) || warn "Could not open $dirname, $!\n";
+                    while (my $filename = readdir(DIR)) {
+                        $filename = "$dirname/$filename";
+                        if (-f $filename) {
+                            if ($filename =~ /$global_default_extension$/)  {
+                                push(@wordlist_files, $filename);
+                            }
+                            else {
+                                warn("Skipping $filename because it doesn't match the extension");
+                            }
+                        }
+                        else {
+                            warn("$filename could not be found.");
+                        }
+                    }
+                }
+                else {
+                    warn("$dirname could not be found.");
+                }
+            }
+            elsif ($selection eq "3") {
+                print("filename: ");
+                my $main_filename = <STDIN>;
+                chomp($main_filename);
+
+                print("prefix (e.g., path to files): ");
+                my $prefix = <STDIN>;
+                chomp($prefix);
+
+                print("suffix (e.g., extension): ");
+                my $suffix = <STDIN>;
+                chomp($suffix);
+
+                if (-f $main_filename) {
+                    open(my $in, "<", "$main_filename") || warn "Could not open $main_filename, $!\n";
+                    my $freq_dist_obj = FreqDist->new();  # TODO update definition
+                    while(my $line = <$in>) {
+                        chomp($line);
+                        if ($line eq "") {next;}
+                        my $filename = "$prefix$line$suffix";
+                        if (-f $filename) {
+                            push(@wordlist_files, $filename);
+                        }
+                        else {
+                            warn "$filename could not be found.";
+                        }
+                    }
+                    close $in;
+                }
+                else {
+                    warn "$main_filename could not be found.";
+                }
+            }
+        }
+        elsif ($choice eq "4") {
+            for my $i (0 .. $#wordlist_files) {
+                my $filename = $wordlist_files[$i];
+                print("$i $filename\n");
+            }
+            print("Indexes of files to remove separated by spaces or 'all' to remove all: ");
+            my $input = <STDIN>;
+            chomp($input);
+            if ($input eq "all") {
+                @wordlist_files = ();
+            }
+            else {
+                my @indexes = split(" ", $input);
+                foreach my $del_idx (@indexes) {
+                    $del_idx = int($del_idx);
+                    splice(@wordlist_files, $del_idx, 1);
+                }
+            }
+        }
+        elsif ($choice eq "5") {
+            for my $filename (@wordlist_files) {
+                print("$filename\n");
+            }
+        }
+        elsif ($choice eq "6") {
+            run_wordlist();
+        }
+        elsif ($choice eq "7") {
+            run_concordance();
+        }
+        elsif ($choice eq "8") {
+            run_ngrams();
+        }
+        elsif ($choice eq "9") {
+            run_keyword();
+        }
+    }
+}
+
+main();
+#Word types: 162
+#Word tokens: 355
+#Search results: 0
+1	23	the
+2	11	year
+3	10	of
+4	8	this
+5	8	to
+6	7	is
+7	6	each
+8	6	in
+9	6	will
+10	6	you
+11	5	a
+12	5	exercise
+13	5	if
+14	5	java
+15	5	lab
+16	5	return
+17	5	that
+18	5	we
+19	4	algorithm
+20	4	and
+21	4	code
+22	4	cs
+23	4	else
+24	4	languages
+25	4	script
+26	4	then
+27	3	codes
+28	3	corresponding
+29	3	directory
+30	3	four
+31	3	integer
+32	3	our
+33	3	problem
+34	3	results
+35	3	use
+36	3	using
+37	3	your
+38	2	ada
+39	2	begin
+40	2	bnf
+41	2	by
+42	2	cat
+43	2	construct
+44	2	create
+45	2	driver
+46	2	e
+47	2	execution
+48	2	file
+49	2	first
+50	2	for
+51	2	freshman
+52	2	from
+53	2	function
+54	2	given
+55	2	i
+56	2	introduction
+57	2	junior
+58	2	new
+59	2	other
+60	2	page
+61	2	provides
+62	2	ruby
+63	2	senior
+64	2	skeletons
+65	2	solve
+66	2	sophomore
+67	2	study
+68	2	these
+69	2	three
+70	2	week
+71	2	which
+72	1	academic
+73	1	adb
+74	1	after
+75	1	all
+76	1	an
+77	1	apply
+78	1	as
+79	1	at
+80	1	be
+81	1	behavior
+82	1	calvin
+83	1	college
+84	1	completed
+85	1	containing
+86	1	contains
+87	1	controlling
+88	1	copying
+89	1	course
+90	1	display
+91	1	displays
+92	1	do
+93	1	does
+94	1	el
+95	1	elisp
+96	1	emacs
+97	1	examine
+98	1	files
+99	1	following
+100	1	follows
+101	1	get
+102	1	have
+103	1	home
+104	1	however
+105	1	implementing
+106	1	into
+107	1	involves
+108	1	labs
+109	1	last
+110	1	lead
+111	1	like
+112	1	lisp
+113	1	making
+114	1	matter
+115	1	more
+116	1	name
+117	1	not
+118	1	on
+119	1	or
+120	1	order
+121	1	pages
+122	1	parts
+123	1	perform
+124	1	precisely
+125	1	print
+126	1	printout
+127	1	process
+128	1	prominent
+129	1	rb
+130	1	requires
+131	1	returned
+132	1	returns
+133	1	s
+134	1	same
+135	1	selection
+136	1	selective
+137	1	should
+138	1	sign
+139	1	simple
+140	1	single
+141	1	somewhere
+142	1	source
+143	1	stapled
+144	1	step
+145	1	string
+146	1	submit
+147	1	syntax
+148	1	techiques
+149	1	them
+150	1	through
+151	1	thus
+152	1	today
+153	1	together
+154	1	traces
+155	1	turn
+156	1	user
+157	1	what
+158	1	when
+159	1	with
+160	1	write
+161	1	yearcode
+162	1	yearcodes
+/[a-zA-Z]+/
+Script started on Wed May 16 09:58:54 2018
+[?1034hbash-3.2$ perl text_nlp_interface_nlp.PL
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    3
+
+        1: Open file
+        2: Open directory
+        3: Open file containing filenames
+        1
+filename: /Users/cat/CS214/source_files/lab03.txt
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    6
+
+        1: Get wordlist
+        2: Search wordlist
+        0: Exit
+        1
+using global regex [^a-zA-Z]+
+Name of file to save in (or STDOUT to output to screen): lab03_wordlist.txt
+Display results (1/0): 0
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    1
+Default extension to use with openDir. Currently .txt:
+Global regex to define nontoken (simplest way is [^nontoken]+). Currently [^a-zA-Z]+:
+Global case sensitive (1/0). Currently 0: 1
+
+Default extension to use with openDir: .txt
+Global regex to define token: [^a-zA-Z]+
+Global case sensitive: 1
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    6
+
+        1: Get wordlist
+        2: Search wordlist
+        0: Exit
+        1
+using global regex [^a-zA-Z]+
+Name of file to save in (or STDOUT to output to screen): STDOUT
+#Word types: 174
+#Word tokens: 355
+#Search results: 0
+1	21	the
+2	11	year
+3	10	of
+4	8	this
+5	8	to
+6	7	is
+7	6	in
+8	6	will
+9	5	a
+10	5	if
+11	5	return
+12	5	that
+13	5	you
+14	4	algorithm
+15	4	and
+16	4	code
+17	4	each
+18	4	else
+19	4	languages
+20	4	script
+21	4	then
+22	4	we
+23	3	CS
+24	3	Exercise
+25	3	Java
+26	3	codes
+27	3	corresponding
+28	3	directory
+29	3	four
+30	3	integer
+31	3	our
+32	3	problem
+33	3	results
+34	3	use
+35	3	using
+36	3	your
+37	2	BNF
+38	2	Each
+39	2	Introduction
+40	2	Lab
+41	2	The
+42	2	by
+43	2	cat
+44	2	construct
+45	2	create
+46	2	driver
+47	2	e
+48	2	execution
+49	2	exercise
+50	2	file
+51	2	first
+52	2	for
+53	2	freshman
+54	2	from
+55	2	function
+56	2	given
+57	2	i
+58	2	java
+59	2	junior
+60	2	lab
+61	2	new
+62	2	other
+63	2	page
+64	2	provides
+65	2	senior
+66	2	skeletons
+67	2	solve
+68	2	sophomore
+69	2	study
+70	2	these
+71	2	three
+72	2	week
+73	2	which
+74	1	Ada
+75	1	Begin
+76	1	Behavior
+77	1	Calvin
+78	1	College
+79	1	Controlling
+80	1	Display
+81	1	Get
+82	1	However
+83	1	LAB
+84	1	LISP
+85	1	Like
+86	1	More
+87	1	Print
+88	1	Ruby
+89	1	Selection
+90	1	Submit
+91	1	Today
+92	1	Turn
+93	1	We
+94	1	When
+95	1	YearCodes
+96	1	You
+97	1	academic
+98	1	ada
+99	1	adb
+100	1	after
+101	1	all
+102	1	an
+103	1	apply
+104	1	as
+105	1	at
+106	1	be
+107	1	begin
+108	1	completed
+109	1	containing
+110	1	contains
+111	1	copying
+112	1	course
+113	1	cs
+114	1	displays
+115	1	do
+116	1	does
+117	1	el
+118	1	elisp
+119	1	emacs
+120	1	examine
+121	1	files
+122	1	following
+123	1	follows
+124	1	have
+125	1	home
+126	1	implementing
+127	1	into
+128	1	involves
+129	1	labs
+130	1	last
+131	1	lead
+132	1	making
+133	1	matter
+134	1	name
+135	1	not
+136	1	on
+137	1	or
+138	1	order
+139	1	pages
+140	1	parts
+141	1	perform
+142	1	precisely
+143	1	printout
+144	1	process
+145	1	prominent
+146	1	rb
+147	1	requires
+148	1	returned
+149	1	returns
+150	1	ruby
+151	1	s
+152	1	same
+153	1	selective
+154	1	should
+155	1	sign
+156	1	simple
+157	1	single
+158	1	somewhere
+159	1	source
+160	1	stapled
+161	1	step
+162	1	string
+163	1	syntax
+164	1	techiques
+165	1	them
+166	1	through
+167	1	thus
+168	1	together
+169	1	traces
+170	1	user
+171	1	what
+172	1	with
+173	1	write
+174	1	yearCode
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    4
+0 /Users/cat/CS214/source_files/lab03.txt
+Indexes of files to remove separated by spaces or 'all' to remove all: 0
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    5
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    3
+
+        1: Open file
+        2: Open directory
+        3: Open file containing filenames
+        1
+filename: lab03_wordlist.txt
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    2
+
+        1: Wordlist settings
+        2: Concordance settings
+        3: Ngram settings
+        4: Keyword settings
+        0: Exit
+        1
+Use global regex for nontoken definition (currently [^a-zA-Z]+) (0) or write your own (1).
+    Currently 0:
+Load wordlist from text files (0) or wordlist files (1). Currently 0: 1
+
+Use global regex: 0
+Wordlist regex:
+Wordlist from text files (0) or wordlist files (1): 1
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    6
+
+        1: Get wordlist
+        2: Search wordlist
+        0: Exit
+        1
+Name of file to save in (or STDOUT to output to screen): STDOUT
+#Word types: 162
+#Word tokens: 355
+#Search results: 0
+1	23	the
+2	11	year
+3	10	of
+4	8	this
+5	8	to
+6	7	is
+7	6	each
+8	6	in
+9	6	will
+10	6	you
+11	5	a
+12	5	exercise
+13	5	if
+14	5	java
+15	5	lab
+16	5	return
+17	5	that
+18	5	we
+19	4	algorithm
+20	4	and
+21	4	code
+22	4	cs
+23	4	else
+24	4	languages
+25	4	script
+26	4	then
+27	3	codes
+28	3	corresponding
+29	3	directory
+30	3	four
+31	3	integer
+32	3	our
+33	3	problem
+34	3	results
+35	3	use
+36	3	using
+37	3	your
+38	2	ada
+39	2	begin
+40	2	bnf
+41	2	by
+42	2	cat
+43	2	construct
+44	2	create
+45	2	driver
+46	2	e
+47	2	execution
+48	2	file
+49	2	first
+50	2	for
+51	2	freshman
+52	2	from
+53	2	function
+54	2	given
+55	2	i
+56	2	introduction
+57	2	junior
+58	2	new
+59	2	other
+60	2	page
+61	2	provides
+62	2	ruby
+63	2	senior
+64	2	skeletons
+65	2	solve
+66	2	sophomore
+67	2	study
+68	2	these
+69	2	three
+70	2	week
+71	2	which
+72	1	academic
+73	1	adb
+74	1	after
+75	1	all
+76	1	an
+77	1	apply
+78	1	as
+79	1	at
+80	1	be
+81	1	behavior
+82	1	calvin
+83	1	college
+84	1	completed
+85	1	containing
+86	1	contains
+87	1	controlling
+88	1	copying
+89	1	course
+90	1	display
+91	1	displays
+92	1	do
+93	1	does
+94	1	el
+95	1	elisp
+96	1	emacs
+97	1	examine
+98	1	files
+99	1	following
+100	1	follows
+101	1	get
+102	1	have
+103	1	home
+104	1	however
+105	1	implementing
+106	1	into
+107	1	involves
+108	1	labs
+109	1	last
+110	1	lead
+111	1	like
+112	1	lisp
+113	1	making
+114	1	matter
+115	1	more
+116	1	name
+117	1	not
+118	1	on
+119	1	or
+120	1	order
+121	1	pages
+122	1	parts
+123	1	perform
+124	1	precisely
+125	1	print
+126	1	printout
+127	1	process
+128	1	prominent
+129	1	rb
+130	1	requires
+131	1	returned
+132	1	returns
+133	1	s
+134	1	same
+135	1	selection
+136	1	selective
+137	1	should
+138	1	sign
+139	1	simple
+140	1	single
+141	1	somewhere
+142	1	source
+143	1	stapled
+144	1	step
+145	1	string
+146	1	submit
+147	1	syntax
+148	1	techiques
+149	1	them
+150	1	through
+151	1	thus
+152	1	today
+153	1	together
+154	1	traces
+155	1	turn
+156	1	user
+157	1	what
+158	1	when
+159	1	with
+160	1	write
+161	1	yearcode
+162	1	yearcodes
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    6
+
+        1: Get wordlist
+        2: Search wordlist
+        0: Exit
+        2
+Regex (0) or text (1): 1
+Query: if
+Exact match (0) or partial match (1): 0
+5	if
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    4
+0 lab03_wordlist.txt
+Indexes of files to remove separated by spaces or 'all' to remove all: 0
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    3
+
+        1: Open file
+        2: Open directory
+        3: Open file containing filenames
+        2
+directory name: /Users/cat/CS214/source_files
+/Users/cat/CS214/source_files/. could not be found. at text_interface_nlp.PL line 806, <STDIN> line 40.
+/Users/cat/CS214/source_files/.. could not be found. at text_interface_nlp.PL line 806, <STDIN> line 40.
+Skipping /Users/cat/CS214/source_files/.DS_Store because it doesn't match the extension at text_interface_nlp.PL line 802, <STDIN> line 40.
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    2
+
+        1: Wordlist settings
+        2: Concordance settings
+        3: Ngram settings
+        4: Keyword settings
+        0: Exit
+        1
+Use global regex for nontoken definition (currently [^a-zA-Z]+) (0) or write your own (1).
+    Currently 0:
+Load wordlist from text files (0) or wordlist files (1). Currently 1: 0
+
+Use global regex: 0
+Wordlist regex:
+Wordlist from text files (0) or wordlist files (1): 0
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    1
+Default extension to use with openDir. Currently .txt:
+Global regex to define nontoken (simplest way is [^nontoken]+). Currently [^a-zA-Z]+:
+Global case sensitive (1/0). Currently 1: 0
+
+Default extension to use with openDir: .txt
+Global regex to define token: [^a-zA-Z]+
+Global case sensitive: 0
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    8 2
+
+        1: Wordlist settings
+        2: Concordance settings
+        3: Ngram settings
+        4: Keyword settings
+        0: Exit
+        3
+Case sensitive: same as global (currently 0) (0), sensitive (1), or insensitive (2). Currently 0:
+Filename containing token regexes for ngrams. Currently valid_tokens.txt:
+ could not be found. at text_interface_nlp.PL line 152, <STDIN> line 59.
+Use file for nontokens (1/0). Currently 0:
+Use file for stopwords (1/0). Currently 0:
+Set minimum frequency (1/0). Currently 0: 1
+Minimum frequency. Currently 1: 2
+Set maximum frequency (1/0). Currently 0:
+Count ngrams across newline tokens (1/0). Currently 1:
+Number of digits to round results to. Currently 6:
+Measure to use for bigrams.
+    Chi phi (phi.pm), tscore.pm, Chi squared (x2.pm),
+    dice.pm, jaccard.pm,
+    fisherLeft.pm, fisherRight.pm, fisherTwotailed.pm,
+    Log likelihood (ll.pm), Pointwise Mutual Information (pmi.pm),
+    Poisson Stirling (ps.pm), True Mutual Information (tmi.pm),
+    odds.pm
+    Currently ll.pm:
+Measure to use for trigrams.
+    Log likelihood (ll.pm), Pointwise Mutual Information (pmi.pm),
+    Poisson Stirling (ps.pm), True Mutual Information (tmi.pm),
+    Currently ll.pm:
+Path to count.pl and statistic.pl. Currently /Users/cat/perl5/bin:
+count.pl and/or statistic.pl couldn't be found in /Users/cat/perl5/bin at text_interface_nlp.PL line 240, <STDIN> line 69.
+
+Case sensitive: 0
+Use file for nontokens (1/0): 0
+Filename containing nontoken regexes for ngrams:
+Use file for stopwords (1/0): 0
+Filename containing stopword regexes for ngrams:
+Set minimum frequency (1/0): 1
+Set maximum frequency (1/0): 0
+Maximum frequency: 1
+Count ngrams across newline tokens (1/0): 1
+Number of digits to round results to: 6
+Measure to use for bigrams: ll.pm
+Measure to use for trigrams: ll.pm
+Path to count.pl and statistic.pl: /Users/cat/perl5/bin
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    7
+Regex (0) or text (1): 1
+Enter the tokens separated by spaces: last end
+using global regex [^a-zA-Z]+
+Exact match (0) or partial match (1): 0
+MyFirst First TheName MyMiddle Middle TheName MyLast <Last end> Init Given such a procedure our 	/Users/cat/CS214/source_files/lab07_ada.txt
+middle last first middle last first middle <last end> end The initialize method serves as 	/Users/cat/CS214/source_files/lab07_ruby.txt
+middle last first middle last first middle <last end> attr reader first middle last end 	/Users/cat/CS214/source_files/lab07_ruby.txt
+middle last end attr reader first middle <last end> Take a moment to add this 	/Users/cat/CS214/source_files/lab07_ruby.txt
+end def middle middle end def last <last end> We don t need it so 	/Users/cat/CS214/source_files/lab07_ruby.txt
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    2
+
+        1: Wordlist settings
+        2: Concordance settings
+        3: Ngram settings
+        4: Keyword settings
+        0: Exit
+        4
+P value for keyword analysis
+    p = 0.05 (exclude keywords with log likelihood < 3.84),
+    p = 0.01 (exclude keywords with log likelihood < 6.63),
+    p = 0.001 (exclude keywords with log likelihood < 10.83,
+    p = 0.0001 (exclude keywords with log likelihood < 15.13,
+    p = 0 (include all keywords)
+    Currently 0.01:
+Use text files (0) or wordlists (1). Currently 0:
+Keyword files are . 1 to add files, 2 to add directory, 3 to remove files, 4 to swap wordlist and keyword files
+1
+Filenames separated by spaces: CS  /Users/lab   cs at/CS214/source_files/lab04.txt
+Save keyword FreqDist to a file after creating it (1/0). Currently 0:
+P value for keyword analysis: 0.01
+Use text files (0) or wordlists (1): 0
+Keyword files: /Users/cat/CS214/source_files/lab04.txt
+Save keyword FreqDist to a file after creating it (1/0): 0
+Filename to store keyword FreqDist in:
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    4
+0 /Users/cat/CS214/source_files/lab01.txt
+1 /Users/cat/CS214/source_files/lab01_ada.txt
+2 /Users/cat/CS214/source_files/lab01_e-lisp.txt
+3 /Users/cat/CS214/source_files/lab01_java.txt
+4 /Users/cat/CS214/source_files/lab01_ruby.txt
+5 /Users/cat/CS214/source_files/lab02.txt
+6 /Users/cat/CS214/source_files/lab03.txt
+7 /Users/cat/CS214/source_files/lab03_ada.txt
+8 /Users/cat/CS214/source_files/lab03_e-lisp.txt
+9 /Users/cat/CS214/source_files/lab03_java.txt
+10 /Users/cat/CS214/source_files/lab03_ruby.txt
+11 /Users/cat/CS214/source_files/lab04.txt
+12 /Users/cat/CS214/source_files/lab04_ada.txt
+13 /Users/cat/CS214/source_files/lab04_e-lisp.txt
+14 /Users/cat/CS214/source_files/lab04_java.txt
+15 /Users/cat/CS214/source_files/lab04_ruby.txt
+16 /Users/cat/CS214/source_files/lab05.txt
+17 /Users/cat/CS214/source_files/lab05_ada.txt
+18 /Users/cat/CS214/source_files/lab05_e-lisp.txt
+19 /Users/cat/CS214/source_files/lab05_java.txt
+20 /Users/cat/CS214/source_files/lab05_ruby.txt
+21 /Users/cat/CS214/source_files/lab06.txt
+22 /Users/cat/CS214/source_files/lab06_ada.txt
+23 /Users/cat/CS214/source_files/lab06_e-lisp.txt
+24 /Users/cat/CS214/source_files/lab06_java.txt
+25 /Users/cat/CS214/source_files/lab06_ruby.txt
+26 /Users/cat/CS214/source_files/lab07.txt
+27 /Users/cat/CS214/source_files/lab07_ada.txt
+28 /Users/cat/CS214/source_files/lab07_e-lisp.txt
+29 /Users/cat/CS214/source_files/lab07_java.txt
+30 /Users/cat/CS214/source_files/lab07_ruby.txt
+31 /Users/cat/CS214/source_files/lab08.txt
+32 /Users/cat/CS214/source_files/lab08_ada.txt
+33 /Users/cat/CS214/source_files/lab08_e-lisp.txt
+34 /Users/cat/CS214/source_files/lab08_java.txt
+35 /Users/cat/CS214/source_files/lab08_ruby.txt
+36 /Users/cat/CS214/source_files/lab09.txt
+37 /Users/cat/CS214/source_files/lab09_ada.txt
+38 /Users/cat/CS214/source_files/lab09_e-lisp.txt
+39 /Users/cat/CS214/source_files/lab09_java.txt
+40 /Users/cat/CS214/source_files/lab09_ruby.txt
+41 /Users/cat/CS214/source_files/lab10.txt
+42 /Users/cat/CS214/source_files/lab10_ada.txt
+43 /Users/cat/CS214/source_files/lab10_e-lisp.txt
+44 /Users/cat/CS214/source_files/lab10_java.txt
+45 /Users/cat/CS214/source_files/lab10_ruby.txt
+46 /Users/cat/CS214/source_files/lab11.txt
+47 /Users/cat/CS214/source_files/proj01.txt
+48 /Users/cat/CS214/source_files/proj02.txt
+49 /Users/cat/CS214/source_files/proj03.txt
+50 /Users/cat/CS214/source_files/proj04.txt
+51 /Users/cat/CS214/source_files/proj05.txt
+52 /Users/cat/CS214/source_files/proj06.txt
+53 /Users/cat/CS214/source_files/proj07.txt
+54 /Users/cat/CS214/source_files/proj08.txt
+55 /Users/cat/CS214/source_files/proj09.txt
+56 /Users/cat/CS214/source_files/proj10.txt
+Indexes of files to remove separated by spaces or 'all' to remove all: all
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    3
+
+        1: Open file
+        2: Open directory
+        3: Open file containing filenames
+        1
+filename: /Users/cat/CS214/lab04/source_files/lab05.txt
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    2
+
+        1: Wordlist settings
+        2: Concordance settings
+        3: Ngram settings
+        4: Keyword settings
+        0: Exit
+        4
+P value for keyword analysis
+    p = 0.05 (exclude keywords with log likelihood < 3.84),
+    p = 0.01 (exclude keywords with log likelihood < 6.63),
+    p = 0.001 (exclude keywords with log likelihood < 10.83,
+    p = 0.0001 (exclude keywords with log likelihood < 15.13,
+    p = 0 (include all keywords)
+    Currently 0:
+Use text files (0) or wordlists (1). Currently 0:
+Keyword files are /Users/cat/CS214/source_files/lab04.txt. 1 to add files, 2 to add directory, 3 to remove files, 4 to swap wordlist and keyword files
+3
+0	/Users/cat/CS214/source_files/lab04.txt
+Indexes of files to remove separated by spaces or 'all' to remove all: 0
+Save keyword FreqDist to a file after creating it (1/0). Currently 0:
+P value for keyword analysis: 0
+Use text files (0) or wordlists (1): 0
+Keyword files:
+Save keyword FreqDist to a file after creating it (1/0): 0
+Filename to store keyword FreqDist in:
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    2
+
+        1: Wordlist settings
+        2: Concordance settings
+        3: Ngram settings
+        4: Keyword settings
+        0: Exit
+        4
+P value for keyword analysis
+    p = 0.05 (exclude keywords with log likelihood < 3.84),
+    p = 0.01 (exclude keywords with log likelihood < 6.63),
+    p = 0.001 (exclude keywords with log likelihood < 10.83,
+    p = 0.0001 (exclude keywords with log likelihood < 15.13,
+    p = 0 (include all keywords)
+    Currently 0:
+Use text files (0) or wordlists (1). Currently 0:
+Keyword files are . 1 to add files, 2 to add directory, 3 to remove files, 4 to swap wordlist and keyword files
+1
+Filenames separated by spaces: test_fic.txt
+Save keyword FreqDist to a file after creating it (1/0). Currently 0:
+P value for keyword analysis: 0
+Use text files (0) or wordlists (1): 0
+Keyword files: test_fic.txt
+Save keyword FreqDist to a file after creating it (1/0): 0
+Filename to store keyword FreqDist in:
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    9 2
+
+        1: Wordlist settings
+        2: Concordance settings
+        3: Ngram settings
+        4: Keyword settings
+        0: Exit
+        4
+P value for keyword analysis
+    p = 0.05 (exclude keywords with log likelihood < 3.84),
+    p = 0.01 (exclude keywords with log likelihood < 6.63),
+    p = 0.001 (exclude keywords with log likelihood < 10.83,
+    p = 0.0001 (exclude keywords with log likelihood < 15.13,
+    p = 0 (include all keywords)
+    Currently 0: .01
+Use text files (0) or wordlists (1). Currently 0:
+Keyword files are test_fic.txt. 1 to add files, 2 to add directory, 3 to remove files, 4 to swap wordlist and keyword files
+
+Save keyword FreqDist to a file after creating it (1/0). Currently 0:
+P value for keyword analysis: 0.01
+Use text files (0) or wordlists (1): 0
+Keyword files: test_fic.txt
+Save keyword FreqDist to a file after creating it (1/0): 0
+Filename to store keyword FreqDist in:
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    6
+
+        1: Get wordlist
+        2: Search wordlist
+        0: Exit
+        1
+using global regex [^a-zA-Z]+
+Name of file to save in (or STDOUT to output to screen): STD   results.txt
+Display results (1/0):
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    9
+Creating FreqDist for keyword files
+Calculating keyword analysis
+Filename (or STDOUT to print to screen, or -1 to exit): STDOUT
+# Corpus 1:	236	552
+# Corpus 2:	378	1095
+# word	keyness	freq1	norm1	freq2	norm2
+part	8.192726	6	10869.565217	1	913.242009
+two	8.192726	6	10869.565217	1	913.242009
+arguments	8.745301	4	7246.376812	0	0.000000
+function	8.745301	4	7246.376812	0	0.000000
+script	8.745301	4	7246.376812	0	0.000000
+substrings	8.745301	4	7246.376812	0	0.000000
+we	8.745301	4	7246.376812	0	0.000000
+will	10.092357	7	12681.159420	1	913.242009
+lab	10.931627	5	9057.971014	0	0.000000
+problem	10.931627	5	9057.971014	0	0.000000
+exercise	13.117952	6	10869.565217	0	0.000000
+languages	13.117952	6	10869.565217	0	0.000000
+of	13.709797	21	38043.478261	11	10045.662100
+each	15.304278	7	12681.159420	0	0.000000
+subprogram	15.304278	7	12681.159420	0	0.000000
+astring	17.490603	8	14492.753623	0	0.000000
+our	19.676928	9	16304.347826	0	0.000000
+pos	21.863254	10	18115.942029	0	0.000000
+Filename (or STDOUT to print to screen, or -1 to exit): 0 -1
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    2
+
+        1: Wordlist settings
+        2: Concordance settings
+        3: Ngram settings
+        4: Keyword settings
+        0: Exit
+        4
+P value for keyword analysis
+    p = 0.05 (exclude keywords with log likelihood < 3.84),
+    p = 0.01 (exclude keywords with log likelihood < 6.63),
+    p = 0.001 (exclude keywords with log likelihood < 10.83,
+    p = 0.0001 (exclude keywords with log likelihood < 15.13,
+    p = 0 (include all keywords)
+    Currently 0.01:
+Use text files (0) or wordlists (1). Currently 0:
+Keyword files are test_fic.txt. 1 to add files, 2 to add directory, 3 to remove files, 4 to swap wordlist and keyword files
+4
+Save keyword FreqDist to a file after creating it (1/0). Currently 0:
+P value for keyword analysis: 0.01
+Use text files (0) or wordlists (1): 0
+Keyword files: /Users/cat/CS214/source_files/lab05.txt
+Save keyword FreqDist to a file after creating it (1/0): 0
+Filename to store keyword FreqDist in:
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    5
+test_fic.txt
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    9
+Creating FreqDist for keyword files
+Calculating keyword analysis
+Filename (or STDOUT to print to screen, or -1 to exit): STd DOUT
+# Corpus 1:	378	1095
+# Corpus 2:	236	552
+# word	keyness	freq1	norm1	freq2	norm2
+she	7.347620	9	8219.178082	0	0.000000
+who	7.347620	9	8219.178082	0	0.000000
+knock	11.429630	14	12785.388128	0	0.000000
+t	11.429630	14	12785.388128	0	0.000000
+s	11.860131	27	24657.534247	2	3623.188406
+door	16.328044	20	18264.840183	0	0.000000
+it	17.144446	21	19178.082192	0	0.000000
+you	29.337512	76	69406.392694	7	12681.159420
+Filename (or STDOUT to print to screen, or -1 to exit): f -1
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    2 1 3 4
+0 test_fic.txt
+Indexes of files to remove separated by spaces or 'all' to remove all: all
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    1
+Default extension to use with openDir. Currently .txt: .pm
+Global regex to define nontoken (simplest way is [^nontoken]+). Currently [^a-zA-Z]+: [ \s+
+Global case sensitive (1/0). Currently 0:
+
+Default extension to use with openDir: .pm
+Global regex to define token: \s+
+Global case sensitive: 0
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    3
+
+        1: Open file
+        2: Open directory
+        3: Open file containing filenames
+        2
+directory name: .
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    6
+
+        1: Get wordlist
+        2: Search wordlist
+        0: Exit
+        1
+using global regex \s+
+Name of file to save in (or STDOUT to output to screen): STDOUT
+#Word types: 436
+#Word tokens: 1210
+#Search results: 0
+1	92	=
+2	73	my
+3	63	{
+4	62	}
+5	31	sub
+6	30	@_;
+7	26	#
+8	26	return
+9	19	if
+10	18	($self,
+11	12	==
+12	11	($self)
+13	11	use
+14	10	0;
+15	9	=>
+16	9	the
+17	8	*
+18	8	keys
+19	7	1;
+20	6	$crit
+21	6	$out
+22	6	$token)
+23	6	in
+24	5	($p
+25	5	+=
+26	5	//
+27	5	0)
+28	5	a
+29	5	open
+30	5	todo:
+31	4	$filename)
+32	4	$self->{_tokens}
+33	4	$self->{_types}
+34	4	$success
+35	4	$success;
+36	4	/
+37	4	carp
+38	4	case
+39	4	corpus
+40	4	else
+41	4	elsif
+42	4	eq
+43	4	next
+44	4	or
+45	4	printf
+46	4	printf($out
+47	4	so
+48	3	"#
+49	3	"couldn't
+50	3	#!/users/cat/perl
+51	3	$filename,
+52	3	$freq)
+53	3	$freq;
+54	3	$key
+55	3	$self->{_hash})
+56	3	($freq1
+57	3	(sort
+58	3	+
+59	3	0
+60	3	2
+61	3	<
+62	3	<=>
+63	3	>
+64	3	affect
+65	3	close
+66	3	doesn't
+67	3	don't
+68	3	each
+69	3	each()
+70	3	foreach
+71	3	internal
+72	3	iterator
+73	3	loop
+74	3	new
+75	3	package
+76	3	prior
+77	3	reset
+78	3	scalar
+79	3	this
+80	3	to
+81	3	while(my($token,
+82	3	{};
+83	2	"#word
+84	2	">",
+85	2	"corpus
+86	2	"stdout")
+87	2	$!\n";
+88	2	$a
+89	2	$b
+90	2	$class
+91	2	$class;
+92	2	$e2
+93	2	$filename);
+94	2	$freq
+95	2	$freq);
+96	2	$freq2
+97	2	$keyness
+98	2	$len
+99	2	$max_freq
+100	2	$max_freq)
+101	2	$norm2
+102	2	$num;
+103	2	$out;
+104	2	$rank
+105	2	$self
+106	2	$self,
+107	2	$self->get_count($token)
+108	2	$self->get_tokens()
+109	2	$self->{_freqdist1}->get_tokens());
+110	2	$self->{_freqdist1}->get_types(),
+111	2	$self->{_freqdist1};
+112	2	$self->{_freqdist2}->get_tokens());
+113	2	$self->{_freqdist2}->get_types(),
+114	2	$self->{_freqdist2};
+115	2	$self->{_hash};
+116	2	$self->{_hash}{$a}
+117	2	$self->{_hash}{$b}
+118	2	$self->{_hash}{$token}
+119	2	$self->{_keyword_dict}
+120	2	$self->{_keyword_dict};
+121	2	$self->{_tokens};
+122	2	$self->{_types};
+123	2	$self;
+124	2	$success)
+125	2	$tokens1
+126	2	$tokens2
+127	2	$type)
+128	2	%d\n",
+129	2	%keyword_dict;
+130	2	%{$self->{_hash}};
+131	2	(!
+132	2	($filename
+133	2	($freq
+134	2	($freq2
+135	2	($token
+136	2	*stdout;
+137	2	-1;
+138	2	-=
+139	2	0,
+140	2	1:\t%d\t%d\n",
+141	2	2:\t%d\t%d\n",
+142	2	6.63;
+143	2	\%keyword_dict,
+144	2	\%keyword_hash;
+145	2	_keyword_dict
+146	2	and
+147	2	bless
+148	2	carp;
+149	2	checking
+150	2	close($out)
+151	2	cmp
+152	2	counting
+153	2	deal
+154	2	did
+155	2	double
+156	2	file
+157	2	freqdist->new();
+158	2	freqdist;
+159	2	get_tokens
+160	2	gives
+161	2	is
+162	2	later
+163	2	non-string?
+164	2	not
+165	2	open($out,
+166	2	p
+167	2	printf("#
+168	2	shift;
+169	2	stdout
+170	2	strict;
+171	2	tokens
+172	2	type
+173	2	types
+174	2	user
+175	2	values
+176	2	warnings;
+177	2	we
+178	2	when
+179	2	will
+180	2	with
+181	2	};
+182	1	""
+183	1	"")
+184	1	"#search
+185	1	"%d\t%d\t%s\n",
+186	1	"%s\t%f\t%d\t%f\t%d\t%f\n",
+187	1	"<",
+188	1	"freq1",
+189	1	"freq2",
+190	1	"keyness",
+191	1	"norm1",
+192	1	"norm2");
+193	1	"word",
+194	1	$!";
+195	1	$.
+196	1	$args{freqdist1}
+197	1	$args{freqdist2}
+198	1	$args{name1}
+199	1	$args{name2}
+200	1	$count
+201	1	$count;
+202	1	$crit);
+203	1	$crit;
+204	1	$e1
+205	1	$freq1)
+206	1	$freq2)
+207	1	$freqdist1
+208	1	$freqdist1)
+209	1	$freqdist1,
+210	1	$freqdist1;
+211	1	$freqdist2
+212	1	$freqdist2)
+213	1	$freqdist2,
+214	1	$freqdist2;
+215	1	$in,
+216	1	$in;
+217	1	$key);
+218	1	$key,
+219	1	$key;
+220	1	$keyness,
+221	1	$keyness;
+222	1	$keyword_hash{$token}
+223	1	$line
+224	1	$line);
+225	1	$max_token
+226	1	$max_token;
+227	1	$name1
+228	1	$name1)
+229	1	$name1,
+230	1	$name1;
+231	1	$name2
+232	1	$name2)
+233	1	$name2,
+234	1	$name2;
+235	1	$new_1
+236	1	$new_2
+237	1	$norm1
+238	1	$norm1);
+239	1	$norm1,
+240	1	$num
+241	1	$other)
+242	1	$other->get_hash();
+243	1	$other_hash
+244	1	$p)
+245	1	$rank,
+246	1	$self->add_token_freq($token,
+247	1	$self->add_token_freq($word_and_freq[2],
+248	1	$self->clear_hash();
+249	1	$self->get_count($type);
+250	1	$self->get_tokens();
+251	1	$self->get_types();
+252	1	$self->set_freqdist1($new_1);
+253	1	$self->set_freqdist2($new_2);
+254	1	$self->{_freqdist1}
+255	1	$self->{_freqdist1}->get_hash())
+256	1	$self->{_freqdist1}->get_normalized_freq($token);
+257	1	$self->{_freqdist1}->get_tokens();
+258	1	$self->{_freqdist1}->get_types();
+259	1	$self->{_freqdist2}
+260	1	$self->{_freqdist2}->get_count($token);
+261	1	$self->{_freqdist2}->get_normalized_freq($token);
+262	1	$self->{_freqdist2}->get_tokens();
+263	1	$self->{_freqdist2}->get_types();
+264	1	$self->{_hash}
+265	1	$self->{_hash}{$key},
+266	1	$self->{_hash}{$token};
+267	1	$self->{_hash}{$type};
+268	1	$self->{_keyword_dict})
+269	1	$self->{_keyword_dict}{$a}{'keyness'}
+270	1	$self->{_keyword_dict}{$b}{'keyness'}
+271	1	$self->{_keyword_dict}{$key}{'freq1'},
+272	1	$self->{_keyword_dict}{$key}{'freq2'},
+273	1	$self->{_keyword_dict}{$key}{'keyness'},
+274	1	$self->{_keyword_dict}{$key}{'norm1'},
+275	1	$self->{_keyword_dict}{$key}{'norm2'});
+276	1	$self->{_keyword_dict}{$token};
+277	1	$self->{_keyword_dict}{$token}{'keyness'};
+278	1	$self->{_name1}
+279	1	$self->{_name1};
+280	1	$self->{_name2}
+281	1	$token,
+282	1	$token;
+283	1	$tokens
+284	1	$tokens2);
+285	1	$tokens;
+286	1	$types1
+287	1	$types2
+288	1	$word_and_freq[1];
+289	1	%hash;
+290	1	%keyword_hash;
+291	1	%s\t%s\t%s\t%s\t%s\t%s\n",
+292	1	%{$other_hash})
+293	1	'/users/cat/perl5/lib/perl5';
+294	1	'freq1'=>$freq1,
+295	1	'freq2'=>$freq2,
+296	1	'norm1'=>$norm1,
+297	1	'norm2'=>$norm2};
+298	1	($count)
+299	1	($keyness
+300	1	($max_token,
+301	1	($norm2
+302	1	($self->get_tokens()
+303	1	($self->get_types()
+304	1	($tokens1
+305	1	(%args)
+306	1	();
+307	1	(https://stackoverflow.com/questions/14393295/best-way-to-skip-a-header-when-reading-in-from-a-text-file-in-perl)
+308	1	.01\n");
+309	1	0){
+310	1	0.0001)
+311	1	0.001)
+312	1	0.01)
+313	1	0.05)
+314	1	0?
+315	1	0\n";
+316	1	1
+317	1	1";
+318	1	10.83;
+319	1	1000000;
+320	1	15.13;
+321	1	2";
+322	1	2;
+323	1	3.84;
+324	1	3;
+325	1	5.10
+326	1	:
+327	1	<$in>)
+328	1	@keys
+329	1	@keys;
+330	1	@word_and_freq
+331	1	@word_and_freq;
+332	1	\%hash,
+333	1	_freqdist1
+334	1	_freqdist2
+335	1	_hash
+336	1	_name1
+337	1	_name2
+338	1	_tokens
+339	1	_types
+340	1	add_token
+341	1	add_token_freq
+342	1	at
+343	1	avoid
+344	1	base
+345	1	be
+346	1	because
+347	1	both
+348	1	but
+349	1	care
+350	1	check
+351	1	chomp($line);
+352	1	clear
+353	1	clear_hash
+354	1	data::dumper;
+355	1	declaration
+356	1	defined-or
+357	1	delete
+358	1	easier
+359	1	empty
+360	1	end
+361	1	first
+362	1	fix
+363	1	freqdist
+364	1	get
+365	1	get_count
+366	1	get_freqdist1
+367	1	get_freqdist2
+368	1	get_hash
+369	1	get_keys
+370	1	get_max
+371	1	get_name1
+372	1	get_normalized_freq
+373	1	get_prob_token
+374	1	get_prob_type
+375	1	get_token_keyness
+376	1	get_token_stats
+377	1	get_types
+378	1	going
+379	1	hash
+380	1	have
+381	1	int($freq);
+382	1	introduced
+383	1	it
+384	1	keyword;
+385	1	keyword_analysis
+386	1	lib
+387	1	likelihood
+388	1	lines
+389	1	log
+390	1	log($freq1/$e1)
+391	1	log($freq1/$e1));
+392	1	log($freq2/$e2)));
+393	1	make
+394	1	newline
+395	1	note:
+396	1	occur
+397	1	of
+398	1	old
+399	1	open(my
+400	1	open_from_txt
+401	1	operator
+402	1	out
+403	1	out_to_txt
+404	1	perl
+405	1	print(dumper($self->{_keyword_dict}));
+406	1	print_keywords
+407	1	push(@keys,
+408	1	qw(html::parser);
+409	1	read
+410	1	remove_type
+411	1	results:
+412	1	rid
+413	1	set_freqdist1
+414	1	set_freqdist2
+415	1	set_name1
+416	1	set_name2
+417	1	setting
+418	1	skip
+419	1	split(/\t/,
+420	1	still
+421	1	swap_freqdists
+422	1	tagparser;
+423	1	that
+424	1	tokens:
+425	1	types:
+426	1	update
+427	1	uses
+428	1	value
+429	1	value.
+430	1	want
+431	1	warn("invalid
+432	1	ways
+433	1	which
+434	1	while(my
+435	1	{'keyness'=>
+436	1	||
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    0
+bash-3.2$ perl -c text_interface_nlp.PL
+text_interface_nlp.PL syntax OK
+bash-3.2$ exit
+
+Script done on Wed May 16 10:25:25 2018
+Script started on Wed May 16 10:46:26 2018
+[?1034hbash-3.2$ perl text_interface_nlp.PL
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    3
+
+        1: Open file
+        2: Open directory
+        3: Open file containing filenames
+        1
+filename: /Users. /cat/CS214/lab03.txt         source_files/lab3 03.txt
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    8
+Destination directory (must be empty): /Users/cat/CS214/ngrams
+Directory supplied (/Users/cat/CS214/ngrams) is not empty. Type '1' to continue anyway (deleting the files) at text_interface_nlp.PL line 576, <STDIN> line 5.
+1
+N (how many tokens in an ngram): 3
+Filename to store results in: trigrm ams
+Creating lowercase files to be case insensitive
+Getting ngrams
+Display results (1/0): 0
+Calculating statistic
+Display statistic (1/0): 1
+353
+then<>return<>else<>1 82.587759 4 4 5 4 4 4 4
+in<>each<>of<>2 64.493429 4 6 6 10 4 4 5
+return<>else<>if<>3 62.167625 3 5 4 5 4 3 3
+we<>will<>use<>4 61.248093 2 5 6 3 5 2 2
+each<>of<>our<>5 61.109901 3 6 10 3 5 3 3
+if<>year<>is<>6 58.786773 4 5 11 7 4 4 4
+precisely<>we<>will<>7 55.818485 1 1 5 6 1 1 5
+we<>will<>thus<>7 55.818485 1 5 6 1 5 1 1
+we<>will<>lead<>7 55.818485 1 5 6 1 5 1 1
+we<>will<>study<>8 53.074550 1 5 6 2 5 1 1
+week<>we<>will<>8 53.074550 1 2 5 6 1 1 5
+problem<>we<>will<>9 52.056790 1 3 5 6 1 1 5
+that<>we<>will<>10 50.929572 1 5 5 6 1 1 5
+return<>we<>will<>10 50.929572 1 5 5 6 1 1 5
+else<>if<>year<>11 50.048230 3 4 5 11 3 3 4
+of<>our<>four<>12 47.385133 2 10 3 3 3 3 2
+freshman<>then<>return<>13 45.273588 1 2 4 5 1 1 4
+senior<>then<>return<>13 45.273588 1 2 4 5 1 1 4
+sophomore<>then<>return<>13 45.273588 1 2 4 5 1 1 4
+junior<>then<>return<>13 45.273588 1 2 4 5 1 1 4
+return<>else<>return<>14 43.111219 1 5 4 5 4 1 1
+is<>junior<>then<>15 40.728443 1 7 2 4 1 4 1
+is<>freshman<>then<>15 40.728443 1 7 2 4 1 4 1
+is<>senior<>then<>15 40.728443 1 7 2 4 1 4 1
+is<>sophomore<>then<>15 40.728443 1 7 2 4 1 4 1
+each<>of<>these<>16 39.269663 1 6 10 2 5 1 1
+directory<>each<>of<>17 38.281058 1 3 6 10 1 1 5
+turn<>in<>each<>18 37.774026 1 1 6 6 1 1 4
+our<>four<>languages<>19 36.209151 2 3 3 4 2 2 2
+java<>introduction<>ada<>20 36.042071 1 5 2 2 2 2 1
+the<>other<>three<>21 35.773658 2 23 2 2 2 2 2
+other<>three<>does<>22 35.639442 1 2 2 1 2 1 1
+i<>e<>or<>22 35.639442 1 2 2 1 2 1 1
+first<>page<>submit<>22 35.639442 1 2 2 1 2 1 1
+script<>elisp<>script<>23 35.500950 1 4 1 4 1 3 1
+each<>of<>the<>24 35.467564 1 6 10 23 5 1 2
+execution<>in<>each<>25 35.041668 1 2 6 6 1 1 4
+construct<>in<>each<>25 35.041668 1 2 6 6 1 1 4
+follows<>if<>year<>26 33.643269 1 1 5 11 1 1 4
+algorithm<>in<>each<>27 33.396387 1 4 6 6 1 1 4
+cs<>lab<>controlling<>28 33.275262 1 4 5 1 3 1 1
+cs<>lab<>somewhere<>28 33.275262 1 4 5 1 3 1 1
+cs<>lab<>at<>28 33.275262 1 4 5 1 3 1 1
+i<>e<>freshman<>29 32.872552 1 2 2 2 2 1 1
+script<>ada<>script<>30 32.751252 1 4 2 4 1 3 1
+year<>codes<>adb<>31 31.601624 1 11 3 1 3 1 1
+year<>codes<>rb<>31 31.601624 1 11 3 1 3 1 1
+year<>codes<>el<>31 31.601624 1 11 3 1 3 1 1
+adb<>year<>codes<>31 31.601624 1 1 11 3 1 1 3
+other<>three<>languages<>32 31.157904 1 2 2 4 2 1 1
+code<>i<>e<>32 31.157904 1 4 2 2 1 1 2
+that<>first<>page<>33 30.658308 1 5 2 2 1 1 2
+script<>java<>script<>34 30.588882 1 4 5 4 1 3 1
+solve<>the<>problem<>35 29.305553 1 2 23 3 1 2 2
+first<>page<>of<>36 29.189659 1 2 2 10 2 1 1
+new<>directory<>for<>37 29.059181 1 2 3 2 2 1 1
+year<>i<>e<>38 28.995172 1 11 2 2 1 1 2
+matter<>java<>introduction<>39 28.909326 1 1 5 2 1 1 2
+use<>bnf<>to<>40 28.402624 1 3 2 8 1 2 2
+the<>corresponding<>integer<>41 28.388705 2 23 3 3 2 2 2
+your<>new<>directory<>42 28.024130 1 3 2 3 1 1 2
+which<>you<>do<>43 28.001272 1 2 6 1 2 1 1
+after<>which<>you<>43 28.001272 1 1 2 6 1 1 2
+of<>our<>languages<>44 27.932694 1 10 3 4 3 1 1
+the<>first<>page<>45 27.541843 1 23 2 2 1 1 2
+selection<>today<>s<>46 27.460201 1 1 1 1 1 1 1
+behavior<>selection<>today<>46 27.460201 1 1 1 1 1 1 1
+controlling<>behavior<>selection<>46 27.460201 1 1 1 1 1 1 1
+have<>completed<>them<>46 27.460201 1 1 1 1 1 1 1
+thus<>be<>implementing<>46 27.460201 1 1 1 1 1 1 1
+pages<>stapled<>together<>46 27.460201 1 1 1 1 1 1 1
+does<>not<>matter<>46 27.460201 1 1 1 1 1 1 1
+at<>calvin<>college<>46 27.460201 1 1 1 1 1 1 1
+somewhere<>prominent<>on<>46 27.460201 1 1 1 1 1 1 1
+files<>containing<>source<>46 27.460201 1 1 1 1 1 1 1
+and<>year<>codes<>47 27.276618 1 4 11 3 1 1 3
+a<>new<>directory<>48 26.862179 1 5 2 3 1 1 2
+java<>year<>codes<>49 26.829503 1 5 11 3 1 1 3
+bnf<>to<>examine<>50 26.642080 1 2 8 1 2 1 1
+to<>create<>files<>50 26.642080 1 8 2 1 2 1 1
+techiques<>to<>solve<>50 26.642080 1 1 8 2 1 1 2
+new<>directory<>each<>51 26.471013 1 2 3 6 2 1 1
+year<>is<>junior<>52 26.470879 1 11 7 2 4 1 1
+year<>is<>freshman<>52 26.470879 1 11 7 2 4 1 1
+year<>is<>senior<>52 26.470879 1 11 7 2 4 1 1
+year<>is<>sophomore<>52 26.470879 1 11 7 2 4 1 1
+college<>cs<>lab<>53 26.286625 1 1 3 4 1 1 2
+four<>languages<>more<>53 26.286625 1 3 4 1 2 1 1
+four<>languages<>like<>53 26.286625 1 3 4 1 2 1 1
+write<>cs<>lab<>53 26.286625 1 1 3 4 1 1 2
+solve<>this<>problem<>54 25.872613 1 2 8 3 1 2 1
+of<>the<>four<>55 24.894180 1 10 23 3 2 3 1
+these<>pages<>stapled<>56 24.687612 1 2 1 1 1 1 1
+submit<>these<>pages<>56 24.687612 1 1 2 1 1 1 1
+create<>files<>containing<>56 24.687612 1 2 1 1 1 1 1
+three<>does<>not<>56 24.687612 1 2 1 1 1 1 1
+like<>last<>week<>56 24.687612 1 1 1 2 1 1 1
+execution<>traces<>when<>56 24.687612 1 2 1 1 1 1 1
+should<>begin<>with<>56 24.687612 1 1 2 1 1 1 1
+java<>script<>ada<>57 24.479512 1 5 4 2 1 2 1
+driver<>to<>solve<>58 23.909723 1 2 8 2 1 1 2
+for<>this<>function<>58 23.909723 1 2 8 2 2 1 1
+bnf<>to<>study<>58 23.909723 1 2 8 2 2 1 1
+cat<>to<>create<>58 23.909723 1 2 8 2 1 1 2
+four<>parts<>requires<>59 23.641116 1 3 1 1 1 1 1
+course<>directory<>home<>59 23.641116 1 1 3 1 1 1 1
+home<>cs<>labs<>59 23.641116 1 1 3 1 1 1 1
+calvin<>college<>cs<>59 23.641116 1 1 1 3 1 1 1
+labs<>into<>your<>59 23.641116 1 1 1 3 1 1 1
+completed<>them<>use<>59 23.641116 1 1 1 3 1 1 1
+corresponding<>integer<>code<>60 23.559882 1 3 3 4 2 1 1
+languages<>like<>last<>61 22.961520 1 4 1 1 1 1 1
+following<>simple<>algorithm<>61 22.961520 1 1 1 4 1 1 1
+printout<>and<>write<>61 22.961520 1 1 4 1 1 1 1
+containing<>source<>code<>61 22.961520 1 1 1 4 1 1 1
+cs<>labs<>into<>61 22.961520 1 4 1 1 1 1 1
+languages<>more<>precisely<>61 22.961520 1 4 1 1 1 1 1
+simple<>algorithm<>get<>61 22.961520 1 1 4 1 1 1 1
+use<>for<>this<>62 22.903574 1 3 2 8 1 1 2
+directory<>for<>this<>62 22.903574 1 3 2 8 1 1 2
+using<>bnf<>to<>62 22.903574 1 3 2 8 1 1 2
+in<>which<>you<>63 22.738635 1 6 2 6 1 1 2
+which<>you<>will<>63 22.738635 1 2 6 6 2 1 1
+to<>solve<>the<>64 22.636384 1 8 2 23 2 3 1
+emacs<>lisp<>exercise<>65 22.456177 1 1 1 5 1 1 1
+today<>s<>exercise<>65 22.456177 1 1 1 5 1 1 1
+lab<>somewhere<>prominent<>65 22.456177 1 5 1 1 1 1 1
+lab<>controlling<>behavior<>65 22.456177 1 5 1 1 1 1 1
+not<>matter<>java<>65 22.456177 1 1 1 5 1 1 1
+more<>precisely<>we<>65 22.456177 1 1 1 5 1 1 1
+s<>exercise<>involves<>65 22.456177 1 1 5 1 1 1 1
+that<>contains<>all<>65 22.456177 1 5 1 1 1 1 1
+exercise<>emacs<>lisp<>65 22.456177 1 5 1 1 1 1 1
+prominent<>on<>that<>65 22.456177 1 1 1 5 1 1 1
+lab<>at<>calvin<>65 22.456177 1 5 1 1 1 1 1
+as<>follows<>if<>65 22.456177 1 1 1 5 1 1 1
+for<>this<>lab<>66 22.264441 1 2 8 4 2 1 1
+traces<>when<>you<>67 22.053467 1 1 1 6 1 1 1
+you<>have<>completed<>67 22.053467 1 6 1 1 1 1 1
+will<>thus<>be<>67 22.053467 1 6 1 1 1 1 1
+when<>you<>have<>67 22.053467 1 1 6 1 1 1 1
+lead<>you<>through<>67 22.053467 1 1 6 1 1 1 1
+parts<>requires<>you<>67 22.053467 1 1 1 6 1 1 1
+el<>from<>the<>68 22.049240 1 1 2 23 1 1 2
+from<>the<>user<>68 22.049240 1 2 23 1 2 1 1
+do<>the<>other<>68 22.049240 1 1 23 2 1 1 2
+from<>the<>course<>68 22.049240 1 2 23 1 2 1 1
+string<>from<>the<>68 22.049240 1 1 2 23 1 1 2
+e<>or<>begin<>69 21.920722 1 2 1 2 1 1 1
+provides<>selective<>execution<>69 21.920722 1 2 1 2 1 1 1
+or<>begin<>by<>69 21.920722 1 1 2 2 1 1 1
+junior<>senior<>what<>69 21.920722 1 2 2 1 1 1 1
+page<>submit<>these<>69 21.920722 1 2 1 2 1 1 1
+begin<>by<>making<>69 21.920722 1 2 2 1 1 1 1
+of<>your<>printout<>70 21.858487 1 10 3 1 2 1 1
+all<>of<>your<>70 21.858487 1 1 10 3 1 1 2
+to<>create<>a<>71 21.799679 1 8 2 5 2 1 1
+is<>as<>follows<>72 21.718573 1 7 1 1 1 1 1
+will<>use<>for<>73 21.466989 1 6 3 2 2 1 1
+will<>use<>bnf<>73 21.466989 1 6 3 2 2 1 1
+you<>to<>create<>74 21.437668 1 6 8 2 1 1 2
+same<>techiques<>to<>75 21.431879 1 1 1 8 1 1 1
+however<>to<>perform<>75 21.431879 1 1 8 1 1 1 1
+be<>implementing<>this<>75 21.431879 1 1 1 8 1 1 1
+to<>perform<>step<>75 21.431879 1 8 1 1 1 1 1
+the<>java<>introduction<>76 21.201822 1 23 5 2 1 1 2
+java<>introduction<>the<>76 21.201822 1 5 2 23 2 1 1
+implementing<>this<>algorithm<>77 21.166069 1 1 8 4 1 1 2
+name<>of<>an<>78 20.958542 1 1 10 1 1 1 1
+of<>an<>academic<>78 20.958542 1 10 1 1 1 1 1
+contains<>all<>of<>78 20.958542 1 1 1 10 1 1 1
+perform<>step<>of<>78 20.958542 1 1 1 10 1 1 1
+to<>solve<>this<>79 20.897835 1 8 2 8 2 1 1
+involves<>using<>bnf<>80 20.879940 1 1 3 2 1 1 1
+into<>your<>new<>80 20.879940 1 1 3 2 1 1 1
+them<>use<>cat<>80 20.879940 1 1 3 2 1 1 1
+integer<>returned<>by<>80 20.879940 1 3 1 2 1 1 1
+codes<>el<>from<>80 20.879940 1 3 1 2 1 1 1
+results<>file<>sign<>80 20.879940 1 3 2 1 1 1 1
+an<>academic<>year<>81 20.758207 1 1 1 11 1 1 1
+code<>skeletons<>yearcodes<>82 20.206074 1 4 2 1 1 1 1
+elisp<>script<>ruby<>82 20.206074 1 1 4 2 1 1 1
+ada<>script<>elisp<>82 20.206074 1 2 4 1 1 1 1
+and<>execution<>traces<>82 20.206074 1 4 2 1 1 1 1
+corresponding<>integer<>the<>83 20.169066 1 3 3 23 2 1 1
+use<>cat<>to<>84 20.130985 1 3 2 8 1 2 1
+directory<>home<>cs<>85 19.844888 1 3 1 3 1 1 1
+ruby<>exercise<>turn<>86 19.706478 1 2 5 1 1 1 1
+a<>single<>file<>86 19.706478 1 5 1 2 1 1 1
+skeletons<>yearcodes<>java<>86 19.706478 1 2 1 5 1 1 1
+lisp<>exercise<>ruby<>86 19.706478 1 1 5 2 1 1 1
+a<>string<>from<>86 19.706478 1 5 1 2 1 1 1
+last<>week<>we<>86 19.706478 1 1 2 5 1 1 1
+a<>function<>yearcode<>86 19.706478 1 5 2 1 1 1 1
+create<>a<>single<>86 19.706478 1 2 5 1 1 1 1
+function<>yearcode<>that<>86 19.706478 1 2 1 5 1 1 1
+yearcode<>that<>given<>86 19.706478 1 1 5 2 1 1 1
+java<>after<>which<>86 19.706478 1 5 1 2 1 1 1
+that<>provides<>selective<>86 19.706478 1 5 2 1 1 1 1
+ada<>exercise<>emacs<>86 19.706478 1 2 5 1 1 1 1
+file<>that<>contains<>86 19.706478 1 2 5 1 1 1 1
+making<>a<>new<>86 19.706478 1 1 5 2 1 1 1
+on<>that<>first<>86 19.706478 1 1 5 2 1 1 1
+returned<>by<>a<>86 19.706478 1 1 2 5 1 1 1
+by<>making<>a<>86 19.706478 1 2 1 5 1 1 1
+single<>file<>that<>86 19.706478 1 1 2 5 1 1 1
+selective<>execution<>in<>87 19.309532 1 1 2 6 1 1 1
+order<>in<>which<>87 19.309532 1 1 6 2 1 1 1
+each<>driver<>displays<>87 19.309532 1 6 2 1 1 1 1
+you<>should<>begin<>87 19.309532 1 6 1 2 1 1 1
+user<>display<>the<>88 19.233335 1 1 1 23 1 1 1
+examine<>the<>syntax<>88 19.233335 1 1 23 1 1 1 1
+the<>user<>display<>88 19.233335 1 23 1 1 1 1 1
+through<>the<>process<>88 19.233335 1 1 23 1 1 1 1
+the<>following<>simple<>88 19.233335 1 23 1 1 1 1 1
+apply<>the<>same<>88 19.233335 1 1 23 1 1 1 1
+the<>same<>techiques<>88 19.233335 1 23 1 1 1 1 1
+codes<>rb<>and<>89 19.176770 1 3 1 4 1 1 1
+and<>write<>cs<>89 19.176770 1 4 1 3 1 1 1
+your<>printout<>and<>89 19.176770 1 3 1 4 1 1 1
+these<>skeletons<>provides<>90 19.159545 1 2 2 2 1 1 1
+sophomore<>junior<>senior<>90 19.159545 1 2 2 2 1 1 1
+freshman<>sophomore<>junior<>90 19.159545 1 2 2 2 1 1 1
+e<>freshman<>sophomore<>90 19.159545 1 2 2 2 1 1 1
+page<>of<>your<>91 19.143622 1 2 10 3 1 1 2
+senior<>what<>is<>92 18.980418 1 2 1 7 1 1 1
+function<>is<>as<>92 18.980418 1 2 7 1 1 1 1
+exercise<>involves<>using<>93 18.682938 1 5 1 3 1 1 1
+using<>java<>after<>93 18.682938 1 3 5 1 1 1 1
+process<>using<>java<>93 18.682938 1 1 3 5 1 1 1
+lab<>results<>print<>93 18.682938 1 5 3 1 1 1 1
+source<>code<>and<>94 18.514415 1 1 4 4 1 1 1
+returns<>the<>corresponding<>95 18.353723 1 1 23 3 1 1 2
+of<>your<>results<>96 18.155017 1 10 3 3 2 1 1
+given<>year<>returns<>97 18.043342 1 2 11 1 1 1 1
+academic<>year<>i<>97 18.043342 1 1 11 2 1 1 1
+exercise<>and<>copying<>98 18.026364 1 5 4 1 1 1 1
+results<>print<>this<>99 17.693372 1 3 1 8 1 1 1
+print<>this<>results<>99 17.693372 1 1 8 3 1 1 1
+languages<>you<>should<>100 17.640994 1 4 6 1 1 1 1
+in<>the<>other<>101 17.292672 1 6 23 2 1 1 2
+exercise<>turn<>in<>102 17.164554 1 5 1 6 1 1 1
+your<>results<>cat<>103 17.095190 1 3 3 2 1 1 1
+codes<>adb<>year<>104 17.054737 1 3 1 11 1 1 1
+skeletons<>provides<>a<>105 16.962543 1 2 2 5 1 1 1
+by<>a<>function<>105 16.962543 1 2 5 2 1 1 1
+introduction<>ada<>exercise<>105 16.962543 1 2 2 5 1 1 1
+provides<>a<>driver<>105 16.962543 1 2 5 2 1 1 1
+construct<>that<>provides<>105 16.962543 1 2 5 2 1 1 1
+you<>will<>apply<>106 16.790829 1 6 6 1 1 1 1
+will<>lead<>you<>106 16.790829 1 6 1 6 1 1 1
+copying<>the<>code<>107 16.751565 1 1 23 4 1 1 2
+display<>the<>code<>107 16.751565 1 1 23 4 1 1 2
+to<>examine<>the<>108 16.688578 1 8 1 23 1 3 1
+sign<>the<>first<>109 16.590013 1 1 23 2 1 1 1
+given<>the<>name<>109 16.590013 1 2 23 1 1 1 1
+file<>sign<>the<>109 16.590013 1 2 1 23 1 1 1
+introduction<>the<>order<>109 16.590013 1 2 23 1 1 1 1
+begin<>with<>the<>109 16.590013 1 2 1 23 1 1 1
+driver<>displays<>the<>109 16.590013 1 2 1 23 1 1 1
+algorithm<>get<>year<>110 16.433200 1 4 1 11 1 1 1
+rb<>and<>year<>110 16.433200 1 1 4 11 1 1 1
+integer<>code<>i<>111 16.432835 1 3 4 2 1 1 1
+results<>cat<>script<>111 16.432835 1 3 2 4 1 1 1
+requires<>you<>to<>112 16.227467 1 1 6 8 1 1 1
+this<>algorithm<>in<>113 16.020223 1 8 4 6 2 1 1
+this<>algorithm<>each<>113 16.020223 1 8 4 6 2 1 1
+get<>year<>a<>114 15.986086 1 1 11 5 1 1 1
+year<>a<>string<>114 15.986086 1 11 5 1 1 1 1
+yearcodes<>java<>year<>114 15.986086 1 1 5 11 1 1 1
+study<>this<>week<>115 15.972978 1 2 8 2 1 1 1
+ruby<>lab<>results<>116 15.944783 1 2 5 3 1 1 1
+code<>and<>execution<>117 15.776261 1 4 4 2 1 1 1
+script<>ruby<>lab<>117 15.776261 1 4 2 4 1 1 1
+this<>week<>is<>118 15.736858 1 8 2 7 1 2 1
+this<>function<>is<>118 15.736858 1 8 2 7 1 2 1
+the<>four<>parts<>119 15.673165 1 23 3 1 1 1 1
+the<>integer<>returned<>119 15.673165 1 23 3 1 1 1 1
+using<>the<>following<>119 15.673165 1 3 23 1 1 1 1
+displays<>the<>integer<>119 15.673165 1 1 23 3 1 1 1
+the<>process<>using<>119 15.673165 1 23 1 3 1 1 1
+the<>course<>directory<>119 15.673165 1 23 1 3 1 1 1
+of<>these<>skeletons<>120 15.522964 1 10 2 2 1 1 1
+step<>of<>this<>121 15.296532 1 1 10 8 1 1 1
+cat<>script<>java<>122 15.294006 1 2 4 5 1 1 1
+year<>however<>to<>123 15.137496 1 11 1 8 1 1 1
+to<>year<>however<>123 15.137496 1 8 11 1 1 1 1
+of<>this<>algorithm<>124 15.136767 1 10 8 4 1 1 2
+and<>copying<>the<>125 15.123600 1 4 1 23 1 1 1
+this<>results<>file<>126 14.972659 1 8 3 2 1 1 1
+three<>languages<>you<>127 14.914451 1 2 4 6 1 1 1
+algorithm<>each<>driver<>127 14.914451 1 4 6 2 1 1 1
+you<>through<>the<>128 14.907542 1 6 1 23 1 2 1
+you<>do<>the<>128 14.907542 1 6 1 23 1 2 1
+the<>order<>in<>128 14.907542 1 23 1 6 1 2 1
+exercise<>ruby<>exercise<>129 14.817565 1 5 2 5 1 1 1
+problem<>using<>the<>130 14.805730 1 3 3 23 1 2 1
+with<>the<>java<>131 14.748673 1 1 23 5 1 1 1
+will<>apply<>the<>132 14.476768 1 6 1 23 1 1 1
+if<>construct<>in<>133 14.443841 1 5 2 6 1 1 1
+what<>is<>the<>134 14.273068 1 1 7 23 1 1 1
+languages<>the<>problem<>135 14.262281 1 4 23 3 1 1 2
+the<>problem<>in<>136 14.147632 1 23 3 6 2 2 1
+the<>code<>skeletons<>137 14.120419 1 23 4 2 2 1 1
+to<>study<>the<>138 14.075838 1 8 2 23 1 3 1
+this<>problem<>using<>139 13.978189 1 8 3 3 1 1 1
+the<>problem<>we<>140 13.893489 1 23 3 5 2 1 1
+a<>driver<>to<>141 13.880478 1 5 2 8 1 1 1
+year<>returns<>the<>142 13.841430 1 11 1 23 1 1 1
+problem<>in<>the<>143 13.627737 1 3 6 23 1 2 1
+will<>study<>this<>144 13.524349 1 6 2 8 1 1 1
+is<>the<>corresponding<>145 13.430211 1 7 23 3 1 1 2
+code<>corresponding<>to<>146 13.350770 1 4 3 8 1 1 1
+that<>given<>year<>147 13.294785 1 5 2 11 1 1 1
+week<>is<>this<>148 13.236173 1 2 7 8 1 1 1
+is<>this<>given<>148 13.236173 1 7 8 2 1 1 1
+the<>code<>corresponding<>149 13.215785 1 23 4 3 2 1 1
+else<>return<>we<>150 13.183963 1 4 5 5 1 1 1
+lab<>exercise<>and<>150 13.183963 1 5 5 4 1 1 1
+algorithm<>that<>we<>150 13.183963 1 4 5 5 1 1 1
+the<>construct<>that<>151 13.065897 1 23 2 5 1 2 1
+the<>syntax<>of<>152 13.040077 1 23 1 10 1 2 1
+syntax<>of<>the<>152 13.040077 1 1 10 23 1 1 2
+the<>name<>of<>152 13.040077 1 23 1 10 1 2 1
+the<>if<>construct<>153 12.129779 1 23 5 2 1 1 1
+study<>the<>if<>153 12.129779 1 2 23 5 1 1 1
+this<>lab<>exercise<>154 11.840921 1 8 5 5 1 1 1
+the<>algorithm<>that<>155 11.636237 1 23 4 5 1 2 1
+integer<>the<>algorithm<>156 11.600071 1 3 23 4 1 1 1
+our<>languages<>the<>156 11.600071 1 3 4 23 1 1 1
+this<>given<>the<>157 11.517586 1 8 2 23 1 1 1
+corresponding<>to<>year<>158 11.516993 1 3 8 11 1 1 1
+of<>the<>construct<>159 10.445912 1 10 23 2 2 1 1
+
+    Main menu
+    1: Global settings
+    2: Tool settings
+    3: Open files
+    4: Remove files
+    5: View filenames
+    6: Wordlist
+    7: Concordance
+    8: Ngrams
+    9: Keyword
+    0: Exit
+    0
+bash-3.2$ exit
+
+Script done on Wed May 16 10:48:06 2018

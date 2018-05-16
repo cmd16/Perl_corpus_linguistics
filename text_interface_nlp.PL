@@ -2,65 +2,68 @@ use strict;
 use warnings;
 use Lingua::EN::Segmenter::TextTiling qw(segments);
 use FreqDist;
+use Keyword;
 use Time::HiRes qw(time);
 use Path::Tiny qw(path);
+use File::Basename;
+use File::Copy;
 require "./Tokenize.PL";
 
-my $show_full_pathname = 1;
 my $global_default_extension = ".txt";
-my $global_save_intermediate = 0;
+my $global_save_intermediate = "0";
 my $global_save_intermediate_dir = "";
 
 my $global_regex = "[^a-zA-Z]+";
-my $global_case_sensitive = 0;
+my $global_case_sensitive = "0";  # case insensitive
 my $global_stop_words = ();
 
-my $tool_wordlist_case = 0;  # in this case means (match whatever global is)
-my $tool_wordlist_regex_checkval = 0;  # match whatever global is
+my $tool_wordlist_regex_checkval = "0";  # match whatever global is
 my $tool_wordlist_regex = "";
-my $tool_wordlist_corpus_checkval = 0;  # raw files (1 means wordlists)
+my $tool_wordlist_corpus_checkval = "0";  # raw files (1 means wordlists)
 my $tool_wordlist_wordlists = ();
 
-my $tool_concordance_case = 0;  # same as global settings
-my $tool_concordance_win_length = 7;
+my $tool_concordance_case = "0";  # same as global settings
+my $tool_concordance_win_length = "7";
 
-my $tool_ngram_case = 0;
-my $tool_ngram_regex_filename = "";
-my $tool_ngram_nontoken_checkval = 0;
+my $tool_ngram_case = "0";
+my $tool_ngram_regex_filename = "valid_tokens.txt";
+my $tool_ngram_nontoken_checkval = "0";
 my $tool_ngram_nontoken_filename = "";
-my $tool_ngram_stop_checkval = 0;
+my $tool_ngram_stop_checkval = "0";
 my $tool_ngram_stop_filename = "";
-my $tool_ngram_freq_checkval = 0;
-my $tool_ngram_freq = 1;
-my $tool_ngram_ufreq_checkval = 0;
-my $tool_ngram_ufreq = 1;
-my $tool_ngram_newline_checkval = 1;
-my $tool_ngram_precision = 6;
-my $tool_ngram_measure_2 = "MI::ll.pm";
-my $tool_ngram_measure_3 = "MI::ll.pm";
-my $tool_ngram_measure_4 = "MI::ll.pm";
+my $tool_ngram_freq_checkval = "0";
+my $tool_ngram_freq = "1";
+my $tool_ngram_ufreq_checkval = "0";
+my $tool_ngram_ufreq = "1";
+my $tool_ngram_newline_checkval = "1";
+my $tool_ngram_precision = "6";
+my $tool_ngram_measure_2 = "ll.pm";
+my $tool_ngram_measure_3 = "ll.pm";
+my $tool_ngram_measure_4 = "ll.pm";
+my $tool_ngram_script_dir = "/Users/cat/perl5/bin";
 
 my $tool_keyword_p = 0.01;
-my $tool_keyword_reference_checkval = 0;
+my $tool_keyword_reference_checkval = "0";  # text files
+my @tool_keyword_files = ();
+my $tool_keyword_save_freqdist = "0";
+my $keyword_outfilename = "";
 
-my $wordlist_types = 0;
-my $wordlist_tokens = 0;
-my $wordlist_search_num = 0;
-my $wordlist_freqdist = new FreqDist;
+my $wordlist_types = "0";
+my $wordlist_tokens = "0";
+my $wordlist_search_num = "0";
+my $wordlist_freqdist = FreqDist->new();
+my $keyword_freqdist = FreqDist->new();
+my $keyword_obj = Keyword->new();
 
-my @filenames = ();
+my @wordlist_files = ();
 
-my $splitter = new Lingua::EN::Splitter;
-$splitter->set_non_word_regexp("$global_regex");  # todo: modify to use definition
+my $splitter = Lingua::EN::Splitter->new();
+$splitter->set_non_word_regexp("$global_regex");
 
 sub set_global_settings {
-    print("Show full pathname? (1/0). Currently $show_full_pathname: ");
-    my $input = <STDIN>;
-    chomp($input);
-    if ($input ne  "") {$show_full_pathname = int($input)};
 
     print("Default extension to use with openDir. Currently $global_default_extension: ");
-    $input = <STDIN>;
+    my $input = <STDIN>;
     chomp($input);
     if ($input ne  "") {$global_default_extension = $input};
 
@@ -80,26 +83,21 @@ sub set_global_settings {
 }
 
 sub view_global_settings {
-    print("Show full pathname: $show_full_pathname\n");
     print("Default extension to use with openDir: $global_default_extension\n");
     print("Global regex to define token: $global_regex\n");
     print("Global case sensitive: $global_case_sensitive\n");
 }
 
 sub set_tool_settings_wordlist {
-    print("Case sensitive: same as global (currently $global_case_sensitive) (0), sensitive (1), or insensitive (2). Currently $tool_wordlist_case: ");
+    print("Use global regex for nontoken definition (currently $global_regex) (0) or write your own (1).
+    Currently $tool_wordlist_regex_checkval: ");
     my $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_wordlist_case = int($input)};
-
-    print("Use global regex for nontoken definition (currently $global_regex) (1/0). Currently $tool_wordlist_regex_checkval: ");
-    $input = <STDIN>;
-    chomp($input);
     # TODO: why isn't this working?
-    if ($input ne  "") {$tool_wordlist_regex_checkval = int($input)};
+    if ($input ne  "") {$tool_wordlist_regex_checkval = $input};
 
-    if ($tool_wordlist_regex_checkval == 1) {
-        print("Set wordlist regex for nontoken (simplest way is [^nontoken]+). Currently $tool_wordlist_regex: ");
+    if ($tool_wordlist_regex_checkval eq "1") {
+        print("Set wordlist regex for nontoken (simplest way is [^token]+ or !token). Currently $tool_wordlist_regex: ");
         $input = <STDIN>;
         chomp($input);
         if ($input ne  "") {$tool_wordlist_regex = $input};
@@ -108,12 +106,11 @@ sub set_tool_settings_wordlist {
     print("Load wordlist from text files (0) or wordlist files (1). Currently $tool_wordlist_corpus_checkval: ");
     $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_wordlist_corpus_checkval = int($input)};
+    if ($input ne  "") {$tool_wordlist_corpus_checkval = $input};
     print("\n");
 }
 
 sub view_tool_settings_wordlist {
-    print("Case sensitive: $tool_wordlist_case\n");
     print("Use global regex: $tool_wordlist_regex_checkval\n");
     if (! $tool_wordlist_regex_checkval) {
         print("Wordlist regex: $tool_wordlist_regex\n");
@@ -125,12 +122,12 @@ sub set_tool_settings_concordance {
     print("Case sensitive: same as global (currently $global_case_sensitive) (0), sensitive (1), or insensitive (2). Currently $tool_concordance_case: ");
     my $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_concordance_case = int($input)};
+    if ($input ne  "") {$tool_concordance_case = $input};
 
     print("Window (how many tokens to display before and after query). Currently $tool_concordance_win_length: ");
     $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_concordance_win_length = int($input)};
+    if ($input ne  "") {$tool_concordance_win_length = $input};
     print("\n");
 }
 
@@ -143,20 +140,26 @@ sub set_tool_settings_ngram {
     print("Case sensitive: same as global (currently $global_case_sensitive) (0), sensitive (1), or insensitive (2). Currently $tool_ngram_case: ");
     my $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_ngram_case = int($input)};
+    if ($input ne  "") {$tool_ngram_case = $input};
 
     print("Filename containing token regexes for ngrams. Currently $tool_ngram_regex_filename: ");
     $input = <STDIN>;
     chomp($input);
-    if (! $input eq  "") {$tool_ngram_regex_filename = $input};
+
+    if ($input ne "" and -f $input) {
+        $tool_ngram_regex_filename = $input;
+    }
+    else {
+        warn("$input could not be found.");
+    }
 
     print("Use file for nontokens (1/0). Currently $tool_ngram_nontoken_checkval: ");
     $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_ngram_nontoken_checkval = int($input);}
 
-    #TODO: not working
-    if (! $tool_ngram_nontoken_checkval) {
+    if ($input ne  "") {$tool_ngram_nontoken_checkval = $input};
+
+    if ($tool_ngram_nontoken_checkval eq "1") {
         print("Filename containing nontoken regexes for ngrams (currently $tool_ngram_nontoken_filename): ");
         $input = <STDIN>;
         chomp($input);
@@ -169,10 +172,9 @@ sub set_tool_settings_ngram {
     print("Use file for stopwords (1/0). Currently $tool_ngram_stop_checkval: ");
     $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_ngram_stop_checkval = int($input)};
+    if ($input ne  "") {$tool_ngram_stop_checkval = $input};
 
-    #TODO: not working
-    if (! $tool_ngram_stop_checkval) {
+    if ($tool_ngram_stop_checkval eq "1") {
         print("Filename containing stopword regexes for ngrams. Currently $tool_ngram_stop_filename: ");
         $input = <STDIN>;
         chomp($input);
@@ -182,11 +184,9 @@ sub set_tool_settings_ngram {
     print("Set minimum frequency (1/0). Currently $tool_ngram_freq_checkval: ");
     $input = <STDIN>;
     chomp($input);
-    # TODO: why isn't this working?
-    if ($input ne  "") {$tool_ngram_freq_checkval = int($input)};
+    if ($input ne  "") {$tool_ngram_freq_checkval = $input};
 
-    #TODO: not working
-    if (! $tool_ngram_freq_checkval) {
+    if ($tool_ngram_freq_checkval eq "1") {
         print("Minimum frequency. Currently $tool_ngram_freq: ");
         $input = <STDIN>;
         chomp($input);
@@ -196,11 +196,9 @@ sub set_tool_settings_ngram {
     print("Set maximum frequency (1/0). Currently $tool_ngram_ufreq_checkval: ");
     $input = <STDIN>;
     chomp($input);
-    # TODO: why isn't this working?
-    if ($input ne  "") {$tool_ngram_ufreq_checkval = int($input)};
+    if ($input ne  "") {$tool_ngram_ufreq_checkval = $input};
 
-    #TODO: not working
-    if (! $tool_ngram_ufreq_checkval) {
+    if ($tool_ngram_ufreq_checkval eq "1") {
         print("Maximum frequency. Currently $tool_ngram_ufreq: ");
         $input = <STDIN>;
         chomp($input);
@@ -210,20 +208,19 @@ sub set_tool_settings_ngram {
     print("Count ngrams across newline tokens (1/0). Currently $tool_ngram_newline_checkval: ");
     $input = <STDIN>;
     chomp($input);
-    # TODO: why isn't this working?
-    if ($input ne  "") {$tool_ngram_newline_checkval = int($input)};
+    if ($input ne  "") {$tool_ngram_newline_checkval = $input};
 
     print("Number of digits to round results to. Currently $tool_ngram_precision: ");
     $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_ngram_newline_checkval = int($input)};
+    if ($input ne  "") {$tool_ngram_newline_checkval = $input};
 
     print("Measure to use for bigrams.
-    CHI::phi.pm, CHI::tscore.pm, CHI::x2,
-    dice::dice.pm, dice::jaccard.pm,
-    Fisher::left.pm, Fisher::right.pm, Fisher::twotailed.pm,
-    Log likelihood (MI::ll.pm), Pointwise Mutual Information (MM::pmi.pm),
-    Poisson Stirling (MI::ps.pm), True Mutual Information (MI::tmi.pm),
+    Chi phi (phi.pm), tscore.pm, Chi squared (x2.pm),
+    dice.pm, jaccard.pm,
+    fisherLeft.pm, fisherRight.pm, fisherTwotailed.pm,
+    Log likelihood (ll.pm), Pointwise Mutual Information (pmi.pm),
+    Poisson Stirling (ps.pm), True Mutual Information (tmi.pm),
     odds.pm
     Currently $tool_ngram_measure_2: ");
     $input = <STDIN>;
@@ -231,23 +228,28 @@ sub set_tool_settings_ngram {
     if ($input ne  "") {$tool_ngram_measure_2 = $input};
 
     print("Measure to use for trigrams.
-    Log likelihood (MI::ll.pm), Pointwise Mutual Information (MM::pmi.pm),
-    Poisson Stirling (MI::ps.pm), True Mutual Information (MI::tmi.pm),
+    Log likelihood (ll.pm), Pointwise Mutual Information (pmi.pm),
+    Poisson Stirling (ps.pm), True Mutual Information (tmi.pm),
     Currently $tool_ngram_measure_3: ");
     $input = <STDIN>;
     chomp($input);
     if ($input ne  "") {$tool_ngram_measure_3 = $input};
+
+    print("Path to count.pl and statistic.pl. Currently $tool_ngram_script_dir: ");
+    $input = <STDIN>;
+    chomp($input);
+    if (-f "$input/count.pl" and -f "$input/statistic.pl") {
+        $tool_ngram_script_dir = $input;
+    }
+    else {
+        warn("count.pl and/or statistic.pl couldn't be found in $tool_ngram_script_dir");
+    }
 
     print("\n");
 }
 
 sub view_tool_settings_ngram {
     print("Case sensitive: $tool_ngram_case\n");
-
-    print("Use global regex for token definition (1/0): $tool_ngram_regex_checkval\n");
-    if ($tool_ngram_regex_checkval) {
-        print("Filename containing token regexes for ngrams: $tool_ngram_regex_filename\n");
-    }
 
     print("Use file for nontokens (1/0): $tool_ngram_nontoken_checkval\n");
     if (! $tool_ngram_nontoken_checkval) {
@@ -277,6 +279,8 @@ sub view_tool_settings_ngram {
     print("Measure to use for bigrams: $tool_ngram_measure_2\n");
 
     print("Measure to use for trigrams: $tool_ngram_measure_3\n");
+
+    print("Path to count.pl and statistic.pl: $tool_ngram_script_dir\n");
 }
 
 sub set_tool_settings_keyword {
@@ -289,17 +293,126 @@ sub set_tool_settings_keyword {
     Currently $tool_keyword_p: ");
     my $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_keyword_p = $input};  # TODO: figure out if this is real
+
+    # convert input to float. This is a bit messy. TODO: refactor
+    if ($input eq  "0.05" or $input eq ".05") {
+        $tool_keyword_p = 0.05;
+    }
+    elsif ($input eq "0.01" or $input eq ".01") {
+        $tool_keyword_p = 0.01;
+    }
+    elsif ($input eq "0.001" or $input eq ".001") {
+        $tool_keyword_p = 0.001;
+    }
+    elsif ($input eq "0.0001" or $input eq ".0001") {
+        $tool_keyword_p = 0.0001;
+    }
+    elsif ($input eq "0") {
+        $tool_keyword_p = 0;
+    }
 
     print("Use text files (0) or wordlists (1). Currently $tool_keyword_reference_checkval: ");
     $input = <STDIN>;
     chomp($input);
-    if ($input ne  "") {$tool_keyword_reference_checkval = int($input)};
+    if ($input ne  "") {$tool_keyword_reference_checkval = $input};
+
+    print("Keyword files are @tool_keyword_files. 1 to add files, 2 to add directory, 3 to remove files, 4 to swap wordlist and keyword files\n");
+    $input = <STDIN>;
+    chomp($input);
+
+    if ($input eq "1") {
+        print("Filenames separated by spaces: ");
+        my $names = <STDIN>;
+        chomp($names);
+        foreach my $filename (split(" ", $names)) {
+            if (-f $filename) {
+                push(@tool_keyword_files, $filename);
+            }
+            else {
+                warn("$filename could not be found.");
+            }
+        }
+    }
+    elsif ($input eq "2") {
+        print("Directory: ");
+        my $dirname = <STDIN>;
+        chomp($dirname);
+        if (-d $dirname) {
+            opendir(DIR, $dirname) || warn "Could not open $dirname, $!\n";
+            while (my $filename = readdir(DIR)) {
+                $filename = "$dirname/$filename";
+                if (-f $filename) {
+                    if ($filename =~ /$global_default_extension$/)  {
+                        push(@tool_keyword_files, $filename);
+                    }
+                    else {
+                        warn("Skipping $filename because it doesn't match the extension");
+                    }
+                }
+                else {
+                    warn("$filename could not be found.");
+                }
+            }
+        }
+        else {
+            warn("$dirname could not be found.");
+        }
+    }
+    elsif ($input eq "3") {
+        for my $i (0..$#tool_keyword_files) {
+            my $filename = $tool_keyword_files[$i];
+            print("$i\t$filename\n");
+        }
+        print("Indexes of files to remove separated by spaces or 'all' to remove all: ");
+        my $input = <STDIN>;
+        chomp($input);
+        if ($input eq "all") {
+            @tool_keyword_files = ();
+        }
+        else {
+            my @indexes = split(" ", $input);
+            foreach my $del_idx (@indexes) {
+                $del_idx = int($del_idx);
+                splice(@tool_keyword_files, $del_idx, 1);
+            }
+        }
+    }
+    elsif ($input eq "4") {
+        my @temp = @tool_keyword_files;
+        my $temp_check = $tool_keyword_reference_checkval;
+
+        @tool_keyword_files = @wordlist_files;
+        $tool_keyword_reference_checkval = $tool_wordlist_corpus_checkval;
+
+        @wordlist_files = @temp;
+        $tool_wordlist_corpus_checkval = $temp_check;
+
+        $keyword_obj->swap_freqdists();
+        $wordlist_freqdist = $keyword_obj->get_freqdist1();
+        $keyword_freqdist = $keyword_obj->get_freqdist2();
+    }
+
+    print("Save keyword FreqDist to a file after creating it (1/0). Currently $tool_keyword_save_freqdist: ");
+    $input = <STDIN>;
+    chomp($input);
+
+    if ($input eq "1") {
+        $tool_keyword_save_freqdist = "1";
+
+        print("Filename to store keyword FreqDist in. Currently $keyword_outfilename: ");
+        $input = <STDIN>;
+        chomp($input);
+
+        if ($input ne "") {$keyword_outfilename = $input;}
+    }
 }
 
 sub view_tool_settings_keyword {
     print("P value for keyword analysis: $tool_keyword_p\n");
     print("Use text files (0) or wordlists (1): $tool_keyword_reference_checkval\n");
+    print("Keyword files: @tool_keyword_files\n");
+    print("Save keyword FreqDist to a file after creating it (1/0): $tool_keyword_save_freqdist\n");
+    print("Filename to store keyword FreqDist in: $keyword_outfilename\n");
 }
 
 sub run_wordlist {
@@ -321,31 +434,34 @@ sub run_wordlist {
                 print("using global regex $global_regex\n");
                 $splitter->set_non_word_regexp("$global_regex");
             }
-            foreach my $filename (@filenames) {
-                $wordlist_freqdist->update(tokenize_file($filename, $splitter));  # TODO: add case sensitive
+            foreach my $filename (@wordlist_files) {
+                my $case = $global_case_sensitive eq "1"? 1 : 0;  # TODO: more elegeant solution
+                $wordlist_freqdist->update(tokenize_file($filename, $splitter, $case));
             }
         }
         else {
-            foreach my $filename (@filenames) {
-                my $current_freq_dist = new FreqDist();
+            foreach my $filename (@wordlist_files) {
+                my $current_freq_dist = FreqDist->new();
                 $current_freq_dist->open_from_txt($filename);
                 $wordlist_freqdist->update($current_freq_dist);
             }
         }
-        print("Name of file to save in: ");
+        print("Name of file to save in (or STDOUT to output to screen): ");
         my $save_name = <STDIN>;
         chomp($save_name);
         $wordlist_freqdist->out_to_txt($save_name);
 
-        print("Display results (1/0): ");
-        my $answer = <STDIN>;
-        chomp($answer);
-        if ($answer eq "1") {
-            open(my $in, "<", $save_name) or warn "Could not open $save_name, $!\n";
-            while(my $line = <$in>) {
-                print($line);
+        unless ($save_name eq "STDOUT") {
+            print("Display results (1/0): ");
+            my $answer = <STDIN>;
+            chomp($answer);
+            if ($answer eq "1") {
+                open(my $in, "<", $save_name) || warn "Could not open $save_name, $!\n";
+                while(my $line = <$in>) {
+                    print($line);
+                }
+                close $in;
             }
-            close $in;
         }
     }
     elsif ($selection eq "2") {  # TODO: get search to work
@@ -395,11 +511,15 @@ sub run_concordance {
     my $query = <STDIN>;
     chomp($query);
 
-    if ($reg_or_txt eq "1") {
-        $query = quotemeta($query);  # escape special characters
-    }
+    my @queries;
 
-    my @queries = split(" ", $query);
+    @queries = split(" ", $query);
+
+    if ($reg_or_txt eq "1") {
+        foreach my $query (@queries) {
+            $query = quotemeta($query);  # modify item in place
+        }
+    }
 
     if ($tool_wordlist_regex_checkval eq "1") {
         print("using local regex $tool_wordlist_regex\n");
@@ -414,49 +534,198 @@ sub run_concordance {
     my $exact_or_partial = <STDIN>;
     chomp($exact_or_partial);
 
-    foreach my $filename (@filenames) {
+    foreach my $filename (@wordlist_files) {
         my $text = path("$filename")->slurp_utf8;
-        my @words = $splitter->words($text);  # TODO: fix problem where @words isn't an array? What is this
+
+        my @words = @{$splitter->words($text)};  # dereference the array
+
         for my $i (0..$#words) {
             my $match = 1;
             for my $x (0..$#queries) {
+                my $query = $queries[$x];
                 my $idx = $i+$x;
                 my $token = $words[$idx];
-                if (! search_token($token, $query, $exact_or_partial)) {
-                    print("$token not a match");
+                if ( ($tool_concordance_case eq "0" and $global_case_sensitive eq "0")
+                    or ($tool_concordance_case eq "2") ) { $token = lc $token; }
+                if (search_token($token, $query, $exact_or_partial) != 1) {
                     $match = 0;
                     last;
                 }
             }
             if ($match) {
-                print(@words[$i-$tool_concordance_win_length..$i+$tool_concordance_win_length]);
+                for my $y ($i-$tool_concordance_win_length..$i+$tool_concordance_win_length) {
+                    if ($y == $i) { print "<"; }  # delineate the beginning of the query
+                    print($words[$y]);
+                    if ($y == $i + $#queries) { print ">"; }  # delineate the end of the query
+                    print(" ");
+                }
                 print("\t$filename\n");
             }
         }
     }
 }
 
-sub run_ngram {
-    my $tool_ngram_case = 0;
-    my $tool_ngram_regex_filename = "";
-    my $tool_ngram_nontoken_checkval = 0;
-    my $tool_ngram_nontoken_filename = "";
-    my $tool_ngram_stop_checkval = 0;
-    my $tool_ngram_stop_filename = "";
-    my $tool_ngram_freq_checkval = 0;
-    my $tool_ngram_freq = 1;
-    my $tool_ngram_ufreq_checkval = 0;
-    my $tool_ngram_ufreq = 1;
-    my $tool_ngram_newline_checkval = 1;
-    my $tool_ngram_precision = 6;
-    my $tool_ngram_measure_2 = "MI::ll.pm";
-    my $tool_ngram_measure_3 = "MI::ll.pm";
-    my $tool_ngram_measure_4 = "MI::ll.pm";
+sub run_ngrams {
+    print("Destination directory (must be empty): ");
+    my $dest = <STDIN>;
+    chomp($dest);
+    if (! -d $dest) {
+        warn("$dest could not be found.");
+        return -1;
+    }
+
+    opendir(DH, $dest) || warn "opendir() failed: $!";
+    my @to_delete = readdir(DH);
+    closedir(DH);
+    my $num_to_delete = @to_delete;
+
+    if ($num_to_delete > 1) {  # if there are files to delete (checking length). "." is always included
+        warn("Directory supplied ($dest) is not empty. Type '1' to continue anyway (deleting the files)");
+        my $input = <STDIN>;
+        chomp($input);
+
+        if ($input eq "1") {
+            foreach my $file ( @to_delete ) {
+                next if $file eq ".";
+                unlink "$dest/$file" || warn "Could not unlink $file: $!";
+            }
+        }
+        else {
+            return -2;  # user chose not to continue
+        }
+    }
+
+    print("N (how many tokens in an ngram): ");
+    my $n = <STDIN>;
+    chomp($n);
+
+    print("Filename to store results in: ");
+    my $result_name = <STDIN>;
+    chomp($result_name);
+
+    if (($tool_ngram_case eq "0" and $global_case_sensitive eq "0")
+    or $tool_ngram_case eq "2") {
+        print("Creating lowercase files to be case insensitive\n");
+        foreach my $filename (@wordlist_files) {
+            my $basename = basename($filename);
+            open(my $in, "<", $filename) || warn("Couldn't open $filename, $!");
+            open(my $out, ">", "$dest/${basename}_lower.txt") || warn("Couldn't open $dest/${basename}_lower.txt, $!");
+            while(my $line = <$in>) {
+                print $out lc($line);
+            }
+            close $in;
+            close $out;
+        }
+    }
+    else {
+        print("Copying files for analysis\n");
+        foreach my $filename (@wordlist_files) {
+            copy($filename, $dest) || warn("Failed to copy $filename to $dest");
+        }
+    }
+
+    my @args = ($^X, "$tool_ngram_script_dir/count.pl", "--ngram=$n", "--token=$tool_ngram_regex_filename");
+
+    if ($tool_ngram_nontoken_checkval eq "1") {push(@args, "--nontoken=$tool_ngram_nontoken_filename");}
+    if ($tool_ngram_stop_checkval eq "1") {push(@args, "--stop=$tool_ngram_stop_filename");}
+    if ($tool_ngram_freq_checkval eq "1") {push(@args, "--frequency=$tool_ngram_freq");}
+    if ($tool_ngram_ufreq_checkval eq "1") {push(@args, "--ufrequency=$tool_ngram_ufreq");}
+    if ($tool_ngram_newline_checkval eq "0") {push(@args, "--newline");}
+    push(@args, "$dest/${result_name}_count.txt", $dest);
+
+    print("Getting ngrams\n");
+    system(@args);  # run count.pl
+
+    print("Display results (1/0): ");
+    my $display = <STDIN>;
+    chomp($display);
+
+    if ($display eq "1") {
+        open(my $in, "<", "$dest/${result_name}_count.txt") || warn "Could not open $dest/${result_name}_count.txt, $!\n";
+        while(my $line = <$in>) {
+            print($line);
+        }
+    }
+
+    if ($n lt "5" and $n gt "1") {
+        @args = ($^X, "$tool_ngram_script_dir/statistic.pl", "--ngram=$n", "--precision=$tool_ngram_precision");
+        if ($n eq "2") {push(@args, $tool_ngram_measure_2);}
+        elsif ($n eq "3") {push(@args, $tool_ngram_measure_3);}
+        elsif ($n eq "4") {push(@args, $tool_ngram_measure_4);}
+        push(@args, "$dest/${result_name}_stat.txt", "$dest/${result_name}_count.txt");
+
+        print("Calculating statistic\n");
+        system(@args);  # run statistic.pl
+
+        print("Display statistic (1/0): ");
+        $display = <STDIN>;
+        chomp($display);
+
+        if ($display eq "1") {
+            open(my $in, "<", "$dest/${result_name}_stat.txt") || warn "Could not open $dest/${result_name}_stat.txt, $!\n";
+            while(my $line = <$in>) {
+                print($line);
+            }
+        }
+    }
+
+    opendir(DH, $dest) || warn "opendir() failed: $!";
+    my @new_files = readdir(DH);
+    closedir(DH);
+    foreach my $file (@new_files) {
+        if (! ($file =~ /_count.txt$/) and ! ($file =~ /_stat.txt$/) ) {
+            unlink "$dest/$file" || warn "Could not unlink $file: $!";
+        }
+    }
+}
+
+sub run_keyword {
+    $wordlist_freqdist->out_to_txt("wordlist_freqdist.txt");
+    print("Creating FreqDist for keyword files\n");
+    $keyword_freqdist = FreqDist->new();
+
+    if ($tool_keyword_reference_checkval eq "1") {
+        foreach my $filename (@tool_keyword_files) {
+            my $current_freq_dist = FreqDist->new();
+            $current_freq_dist->open_from_txt($filename);
+            $keyword_freqdist->update($current_freq_dist);
+        }
+    }
+    else {
+        foreach my $filename (@tool_keyword_files) {
+            my $current_freq_dist = tokenize_file($filename, $splitter, $global_case_sensitive);
+            $keyword_freqdist->update($current_freq_dist);
+        }
+    }
+
+    if ($tool_keyword_save_freqdist) {
+        $keyword_freqdist->out_to_txt($keyword_outfilename);
+    }
+
+    print("Calculating keyword analysis\n");
+    $keyword_obj->set_freqdist1($wordlist_freqdist);
+    $keyword_obj->set_freqdist2($keyword_freqdist);
+
+    $keyword_obj->keyword_analysis($tool_keyword_p);
+
+    my $done = 0;
+    while (! $done) {  # loop so you don't lose the whole thing because you mistyped
+        print("Filename (or STDOUT to print to screen, or -1 to exit): ");
+        my $result_name = <STDIN>;
+        chomp($result_name);
+
+        if ($result_name eq "-1") {
+            $done = 1;
+        }
+        else {
+            $keyword_obj->print_keywords($result_name);
+        }
+    }
 }
 
 sub main {
-    my $choice = -1;
-    my $seleciton = -1;
+    my $choice = "-1";
+    my $seleciton = "-1";
     while ($choice ne "0") {
         print("
     Main menu
@@ -473,6 +742,7 @@ sub main {
     ");
         my $choice = <STDIN>;
         chomp($choice);
+        last if ($choice eq "0");
         if ($choice eq "1") {
             set_global_settings();
             view_global_settings();
@@ -517,7 +787,7 @@ sub main {
                 my $filename = <STDIN>;
                 chomp($filename);
                 if (-f $filename) {
-                    push(@filenames, $filename);
+                    push(@wordlist_files, $filename);
                 }
                 else {
                     warn("$filename could not be found.");
@@ -528,12 +798,12 @@ sub main {
                 my $dirname = <STDIN>;
                 chomp($dirname);
                 if (-d $dirname) {
-                    opendir(DIR, $dirname) or die "Could not open $dirname, $!\n";
+                    opendir(DIR, $dirname) || warn "Could not open $dirname, $!\n";
                     while (my $filename = readdir(DIR)) {
                         $filename = "$dirname/$filename";
                         if (-f $filename) {
                             if ($filename =~ /$global_default_extension$/)  {
-                                push(@filenames, $filename);
+                                push(@wordlist_files, $filename);
                             }
                             else {
                                 warn("Skipping $filename because it doesn't match the extension");
@@ -562,14 +832,14 @@ sub main {
                 chomp($suffix);
 
                 if (-f $main_filename) {
-                    open(my $in, "<$main_filename") or warn "Could not open $main_filename, $!\n";
-                    my $freq_dist_obj = new FreqDist;  # TODO update definition
+                    open(my $in, "<", "$main_filename") || warn "Could not open $main_filename, $!\n";
+                    my $freq_dist_obj = FreqDist->new();  # TODO update definition
                     while(my $line = <$in>) {
                         chomp($line);
                         if ($line eq "") {next;}
                         my $filename = "$prefix$line$suffix";
                         if (-f $filename) {
-                            push(@filenames, $filename);
+                            push(@wordlist_files, $filename);
                         }
                         else {
                             warn "$filename could not be found.";
@@ -583,22 +853,26 @@ sub main {
             }
         }
         elsif ($choice eq "4") {
-            if ($#filenames < 1) {
-                print("No files to remove.\n");
-                next;
-            }
-            for my $i (0 .. $#filenames) {
-                my $filename = $filenames[$i];
+            for my $i (0 .. $#wordlist_files) {
+                my $filename = $wordlist_files[$i];
                 print("$i $filename\n");
             }
-            print("Index of file to delete: ");
-            my $del_idx = <STDIN>;
-            chomp($del_idx);
-            $del_idx = int($del_idx);
-            splice(@filenames, $del_idx, 1);
+            print("Indexes of files to remove separated by spaces or 'all' to remove all: ");
+            my $input = <STDIN>;
+            chomp($input);
+            if ($input eq "all") {
+                @wordlist_files = ();
+            }
+            else {
+                my @indexes = split(" ", $input);
+                foreach my $del_idx (@indexes) {
+                    $del_idx = int($del_idx);
+                    splice(@wordlist_files, $del_idx, 1);
+                }
+            }
         }
         elsif ($choice eq "5") {
-            for my $filename (@filenames) {
+            for my $filename (@wordlist_files) {
                 print("$filename\n");
             }
         }
@@ -609,7 +883,10 @@ sub main {
             run_concordance();
         }
         elsif ($choice eq "8") {
-            run_ngram();
+            run_ngrams();
+        }
+        elsif ($choice eq "9") {
+            run_keyword();
         }
     }
 }
