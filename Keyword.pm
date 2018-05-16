@@ -159,7 +159,7 @@ sub print_keywords {
     printf($out "# Corpus 2:\t%d\t%d\n", $self->{_freqdist2}->get_types(), $self->{_freqdist2}->get_tokens());
     printf($out "# %s\t%s\t%s\t%s\t%s\t%s\n", "word", "keyness", "freq1",
     "norm1", "freq2", "norm2");
-    foreach my $key (sort { $self->{_keyword_dict}{$a}{'keyness'} <=> $self->{_keyword_dict}{$b}{'keyness'}
+    foreach my $key (sort { $self->{_keyword_dict}{$b}{'keyness'} <=> $self->{_keyword_dict}{$a}{'keyness'}
                             or $a cmp $b } keys $self->{_keyword_dict}) {
         printf($out "%s\t%f\t%d\t%f\t%d\t%f\n", $key, $self->{_keyword_dict}{$key}{'keyness'}, $self->{_keyword_dict}{$key}{'freq1'},
         $self->{_keyword_dict}{$key}{'norm1'}, $self->{_keyword_dict}{$key}{'freq2'}, $self->{_keyword_dict}{$key}{'norm2'});
