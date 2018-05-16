@@ -3,14 +3,15 @@ use strict;
 use warnings;
 package Keyword;
 use FreqDist;  # this uses Carp
+use Carp;
 use Data::Dumper;
 
 sub new {
     my $class = shift;
     my (%args) = @_;
     my %keyword_dict;
-    my $freqdist1 = $args{freqdist1} // new FreqDist;  # // is defined-or operator introduced in Perl 5.10
-    my $freqdist2 = $args{freqdist2} // new FreqDist;
+    my $freqdist1 = $args{freqdist1} // FreqDist->new();  # // is defined-or operator introduced in Perl 5.10
+    my $freqdist2 = $args{freqdist2} // FreqDist->new();
     my $name1 = $args{name1} // "Corpus 1";
     my $name2 = $args{name2} // "Corpus 2";
 

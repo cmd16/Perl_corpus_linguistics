@@ -9,7 +9,7 @@ use Data::Dumper;
 
 sub tokenize_dir {
     my ($dirname, $splitter) = @_;
-    my $freq_dist_obj = new FreqDist;  # TODO update definition
+    my $freq_dist_obj = FreqDist->new();  # TODO update definition
     opendir(DIR, $dirname) || warn "Could not open $dirname, $!\n";
     while (my $filename = readdir(DIR)) {
         if (-f $filename) {  # is this enough to avoid .DS_Store ?
@@ -30,7 +30,7 @@ sub tokenize_file {
     # else {
     #     print("original\n");
     # }
-    my $current_freqdist = new FreqDist();
+    my $current_freqdist = FreqDist->new();
     open(my $in, "<", $filename) || warn "Could not open tokenize $filename, $!\n";
     while(my $line = <$in>) {
         my $tokens = $splitter->words($line);
@@ -52,7 +52,7 @@ sub tokenize_file {
 sub tokenize_from_idlist {
     my ($list_filename, $path, $splitter, $case_sensitive) = @_;
     open(my $in, "<$list_filename") || warn "Could not open list_filename, $!\n";
-    my $freq_dist_obj = new FreqDist;  # TODO update definition
+    my $freq_dist_obj = FreqDist->new();  # TODO update definition
     while(my $line = <$in>) {
         chomp($line);
         my $filename = "$path/$line.txt";
@@ -80,7 +80,7 @@ sub find_prototypical {
 
     my %file_data = {};
 
-    my $keyword_obj = new Keyword(freqdist1 => $comp_freqdist);
+    my $keyword_obj = Keyword->new(freqdist1 => $comp_freqdist);
 
     open(my $in, "<$idlist") || warn "Could not open $idlist, $!\n";
     while(my $line = <$in>) {
@@ -90,7 +90,7 @@ sub find_prototypical {
         }
         my $filename = "$source_dir/$line$extension";
 
-        my $current_freqdist = new FreqDist;
+        my $current_freqdist = FreqDist->new();
         if ($use_wordlist) {
             $current_freqdist->open_from_txt($filename);
         }

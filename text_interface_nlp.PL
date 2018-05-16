@@ -51,13 +51,13 @@ my $keyword_outfilename = "";
 my $wordlist_types = "0";
 my $wordlist_tokens = "0";
 my $wordlist_search_num = "0";
-my $wordlist_freqdist = new FreqDist;
-my $keyword_freqdist = new FreqDist;
-my $keyword_obj = new Keyword;
+my $wordlist_freqdist = FreqDist->new();
+my $keyword_freqdist = FreqDist->new();
+my $keyword_obj = Keyword->new();
 
 my @wordlist_files = ();
 
-my $splitter = new Lingua::EN::Splitter;
+my $splitter = Lingua::EN::Splitter->new();
 $splitter->set_non_word_regexp("$global_regex");
 
 sub set_global_settings {
@@ -436,7 +436,7 @@ sub run_wordlist {
         }
         else {
             foreach my $filename (@wordlist_files) {
-                my $current_freq_dist = new FreqDist();
+                my $current_freq_dist = FreqDist->new();
                 $current_freq_dist->open_from_txt($filename);
                 $wordlist_freqdist->update($current_freq_dist);
             }
@@ -511,7 +511,7 @@ sub run_concordance {
     @queries = split(" ", $query);
 
     if ($reg_or_txt eq "1") {
-        foreach $query (@queries) {
+        foreach my $query (@queries) {
             $query = quotemeta($query);  # modify item in place
         }
     }
@@ -675,11 +675,11 @@ sub run_ngrams {
 sub run_keyword {
     $wordlist_freqdist->out_to_txt("wordlist_freqdist.txt");
     print("Creating FreqDist for keyword files\n");
-    $keyword_freqdist = new FreqDist;
+    $keyword_freqdist = FreqDist->new();
 
     if ($tool_keyword_reference_checkval eq "1") {
         foreach my $filename (@tool_keyword_files) {
-            my $current_freq_dist = new FreqDist;
+            my $current_freq_dist = FreqDist->new();
             $current_freq_dist->open_from_txt($filename);
             $keyword_freqdist->update($current_freq_dist);
         }
@@ -825,8 +825,8 @@ sub main {
                 chomp($suffix);
 
                 if (-f $main_filename) {
-                    open(my $in, "<$main_filename") || warn "Could not open $main_filename, $!\n";
-                    my $freq_dist_obj = new FreqDist;  # TODO update definition
+                    open(my $in, "<", "$main_filename") || warn "Could not open $main_filename, $!\n";
+                    my $freq_dist_obj = FreqDist->new();  # TODO update definition
                     while(my $line = <$in>) {
                         chomp($line);
                         if ($line eq "") {next;}
