@@ -83,11 +83,7 @@ sub get_token_stats {
 
 sub get_token_keyness {
     my ($self, $token) = @_;
-    my %entry = $self->get_token_stats($token);
-    if (%entry) {
-        return $entry{'keyness'};
-    }
-    return -1;
+    return $self->{_keyword_dict}{$token}{'keyness'};
 }
 
 sub keyword_analysis {
@@ -106,8 +102,8 @@ sub keyword_analysis {
     my $types1 = $self->{_freqdist1}->get_types();
     my $types2 = $self->{_freqdist2}->get_types();
 
-    printf("# Corpus 1:\t%d\t%d\n", $self->{_freqdist1}->get_types(), $self->{_freqdist1}->get_tokens());
-    printf("# Corpus 2:\t%d\t%d\n", $self->{_freqdist2}->get_types(), $self->{_freqdist2}->get_tokens());
+    # printf("# Corpus 1:\t%d\t%d\n", $self->{_freqdist1}->get_types(), $self->{_freqdist1}->get_tokens());
+    # printf("# Corpus 2:\t%d\t%d\n", $self->{_freqdist2}->get_types(), $self->{_freqdist2}->get_tokens());
 
     scalar keys $self->{_keyword_dict}; # reset the internal iterator so a prior each() doesn't affect the loop
     while(my($token, $freq1) = each $self->{_freqdist1}->get_hash()) {
