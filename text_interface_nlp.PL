@@ -146,11 +146,13 @@ sub set_tool_settings_ngram {
     $input = <STDIN>;
     chomp($input);
 
-    if ($input ne "" and -f $input) {
-        $tool_ngram_regex_filename = $input;
-    }
-    else {
-        warn("$input could not be found.");
+    if ($input ne "") {
+        if (-f $input) {
+            $tool_ngram_regex_filename = $input;
+        }
+        else {
+            warn("$input could not be found.");
+        }
     }
 
     print("Use file for nontokens (1/0). Currently $tool_ngram_nontoken_checkval: ");
