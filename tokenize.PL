@@ -2,13 +2,15 @@
 use strict;
 use warnings;
 use lib '/Users/cat/perl5/lib/perl5';
-use Lingua::EN::Segmenter::TextTiling qw(segments);
+use Lingua::EN::Segmenter::TextTiling qw(segments);  # Note: Splitter.pm has been modified to not change case
 use FreqDist;
+use Keyword;
+use Data::Dumper;
 
 sub tokenize_dir {
     my ($dirname, $splitter) = @_;
     my $freq_dist_obj = new FreqDist;  # TODO update definition
-    opendir(DIR, $dirname) or warn "Could not open $dirname, $!\n";
+    opendir(DIR, $dirname) || warn "Could not open $dirname, $!\n";
     while (my $filename = readdir(DIR)) {
         if (-f $filename) {  # is this enough to avoid .DS_Store ?
             # print "processing {$filename}";
@@ -22,15 +24,21 @@ sub tokenize_dir {
 
 sub tokenize_file {
     my ($filename, $splitter, $case_sensitive) = @_;
+    # if (! $case_sensitive) {
+    #     print("lc\n");
+    # }
+    # else {
+    #     print("original\n");
+    # }
     my $current_freqdist = new FreqDist();
-    open(my $in, "<", $filename) or warn "Could not open tokenize $filename, $!\n";
+    open(my $in, "<", $filename) || warn "Could not open tokenize $filename, $!\n";
     while(my $line = <$in>) {
         my $tokens = $splitter->words($line);
         foreach my $token (@$tokens) {
             if ($token eq "") {
                 next;
             }
-            if (!($case_sensitive)) {
+            if (! $case_sensitive) {
                 $token = lc $token;
             }
             $current_freqdist->add_token($token);
@@ -43,7 +51,7 @@ sub tokenize_file {
 
 sub tokenize_from_idlist {
     my ($list_filename, $path, $splitter, $case_sensitive) = @_;
-    open(my $in, "<$list_filename") or warn "Could not open list_filename, $!\n";
+    open(my $in, "<$list_filename") || warn "Could not open list_filename, $!\n";
     my $freq_dist_obj = new FreqDist;  # TODO update definition
     while(my $line = <$in>) {
         chomp($line);
@@ -57,48 +65,94 @@ sub tokenize_from_idlist {
 }
 
 # TODO: modify to work with list of filenames
-# sub find_prototypical {
-#     my (%args) = @_;
-#     my $comp_freqdist = $args{comp_freqdist} or die "No comparison freqdist provided";
-#     my $source_dir = $args{source_dir} or ".";
-#     my $idlist = $args{idlist} or die "No idlist provided";
-#     my $outfilename = $args{outfilename} or "$source_dir/prototypical.txt";
-#     my $n = $args{n} or 10;
-#     my $extension = $args{extension} or "";
-#     my $case_sensitive = $args{case_sensitive} or 0;
-#     my $splitter = $args{splitter} or die "No splitter provided!";
-#
-#     my %file_data = {};
-#
-#     open(my $in, "<$idlist") or warn "Could not open $idlist, $!\n";
-#     while(my $line = <$in>) {
-#         chomp($line);
-#         my $filename = "$source_dir/$line$extension";
-#         my $current_freqdist = tokenize_file($filename, $splitter, $case_sensitive);
-#         my $sum = 0;
-#
-#         my $this_hash = $comp_freqdist->keyword_analysis($current_freqdist, 0);
-#         foreach my $value (values %{$this_hash}) {
-#             $sum += $value{'keyness'};
-#         }
-#
-#         $this_hash = $current_freqdist->keyword_analysis($comp_freqdist, 0);
-#         foreach my $value (values %{$this_hash}) {
-#             $sum += $value{'keyness'};
-#         }
-#
-#         $file_data{$filename} = $sum;
-#     }
-#     close $in;
-#
-#     open(my $out, ">", $outfilename) or die "Couldn't open $outfilename, $!";
-#     my $i = 0;
-#     foreach my $key (sort { %file_data{$a} <=> %file_data{$b} } keys %file_data) {
-#         last if ($i == $n);
-#         printf $out "%s\t%f", $key, %file_data{$key};
-#         $i += 1;
-#     }
-#     close $out;
-# }
+sub find_prototypical {
+    my (%args) = @_;
+    my $comp_freqdist = $args{comp_freqdist} // die "No comparison freqdist provided";
+    my $source_dir = $args{source_dir} // ".";
+    my $idlist = $args{idlist} // die "No idlist provided";
+    my $outfilename = $args{outfilename} // "$source_dir/prototypical.txt";
+    my $n = $args{n} // 0;  # 0 means get everything
+    my $extension = $args{extension} // "";
+    my $case_sensitive = $args{case_sensitive} // 0;
+    my $splitter = $args{splitter} // die "No splitter provided!";
+    my $use_wordlist = $args{use_wordlist} // 0;
+    my $verbose = $args{verbose} // 0;
+
+    my %file_data = {};
+
+    my $keyword_obj = new Keyword(freqdist1 => $comp_freqdist);
+
+    open(my $in, "<$idlist") || warn "Could not open $idlist, $!\n";
+    while(my $line = <$in>) {
+        chomp($line);
+        if ($verbose) {
+            print("$line wordlist ");
+        }
+        my $filename = "$source_dir/$line$extension";
+
+        my $current_freqdist = new FreqDist;
+        if ($use_wordlist) {
+            $current_freqdist->open_from_txt($filename);
+        }
+        else {
+            $current_freqdist = tokenize_file($filename, $splitter, $case_sensitive);
+        }
+
+        my $sum = 0;
+
+        if ($verbose) {
+            print("keywords\n");
+        }
+        $keyword_obj->set_freqdist2($current_freqdist);
+        $keyword_obj->keyword_analysis(0);  # p value of 0
+
+        foreach my $token ($keyword_obj->get_tokens()) {
+            $sum += $keyword_obj->get_token_keyness($token);
+        }
+
+        $keyword_obj->swap_freqdists();
+        $keyword_obj->keyword_analysis(0);  # p value of 0
+
+        foreach my $token ($keyword_obj->get_tokens()) {
+            $sum += $keyword_obj->get_token_keyness($token);
+        }
+
+        $file_data{$filename} = $sum;
+    }
+    close $in;
+
+    my $out;
+    my $success = open($out, ">", $outfilename);
+    if (! $success) {
+        warn "Couldn't open $outfilename, $!\n";
+        return -1;
+    }
+
+    my $i = 0;
+    if ($n == 0 or $n >= keys %file_data) {
+        $n = keys %file_data;  # TODO: see if this works
+    }
+
+    if ($verbose) {
+        print("sort and print results\n");
+        # print(Dumper(\%file_data));
+    }
+
+    foreach my $key (keys %file_data) {
+        if (! defined $file_data{$key}) {
+            print("$key\n");
+            delete $file_data{$key};
+        }
+        # print "$key\n";
+        # printf "%s\t%f\n", $key, $file_data{$key};
+    }
+
+    foreach my $key (sort { $file_data{$a} <=> $file_data{$b} } keys %file_data) {
+        last if ($i == $n);
+        printf $out "%s\t%f\n", $key, $file_data{$key};
+        $i += 1;
+    }
+    close $out;
+}
 
 return 1;
